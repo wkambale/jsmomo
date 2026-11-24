@@ -1,3 +1,4 @@
+import { connect } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AirtelClient } from "../../src/airtel/client.js";
@@ -32,6 +33,51 @@ describe("Local Mock Gateway Server", () => {
     );
     expect(() => createMockServer({ port: 70000 })).toThrow("port");
     expect(() => createMockServer({ maxBodyBytes: 0 })).toThrow("maxBodyBytes");
+  });
+
+  it("enforces total requestTimeout against slow-drip POST bodies (Issue #16)", async () => {
+    const slowSrv = await startMockServer({
+      host: "127.0.0.1",
+      port: 0,
+      maxConcurrentRequests: 2,
+      requestTimeout: 0.25,
+    });
+    const sockets: ReturnType<typeof connect>[] = [];
+    let dripTimer: ReturnType<typeof setInterval> | undefined;
+    try {
+      expect(slowSrv.server.requestTimeout).toBe(250);
+      expect(slowSrv.server.headersTimeout).toBe(250);
+      const openSlowPost = () =>
+        new Promise<void>((resolve) => {
+          const sock = connect({ host: "127.0.0.1", port: slowSrv.port }, () => {
+            sock.write(
+              "POST /collection/v1_0/requesttopay HTTP/1.1\r\n" +
+                "Host: 127.0.0.1\r\n" +
+                "Content-Length: 1000\r\n" +
+                "Content-Type: application/json\r\n\r\n" +
+                "{",
+            );
+            sockets.push(sock);
+            resolve();
+          });
+          sock.on("error", () => resolve());
+        });
+      await openSlowPost();
+      await openSlowPost();
+      dripTimer = setInterval(() => {
+        for (const s of sockets) {
+          if (!s.destroyed) s.write(" ");
+        }
+      }, 75);
+      await new Promise((r) => setTimeout(r, 450));
+      const resp = await fetch(`${slowSrv.url}/v1/balance`);
+      expect(resp.status).toBe(200);
+    } finally {
+      if (dripTimer) clearInterval(dripTimer);
+      for (const s of sockets) s.destroy();
+      slowSrv.server.closeAllConnections?.();
+      await slowSrv.close();
+    }
   });
 
   it("serves MTN MoMo, Sandbox, Airtel, Wave, M-Pesa, Paystack, Flutterwave, and Orange Money end-to-end", async () => {
