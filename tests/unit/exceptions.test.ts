@@ -97,6 +97,34 @@ describe("exceptions", () => {
     expect(serialized["referenceId"]).toBe("ref-123");
     expect(serialized["statusCode"]).toBe(422);
     expect(serialized["responseBody"]).toBeUndefined();
+
+    // CamelCase, kebab-case, and Orange Money token keys are redacted (Issue #15)
+    const multiErr = new JsMomoSDKError("Upstream failed", {
+      responseBody: {
+        accessToken: "tok-camel",
+        refreshToken: "ref-camel",
+        clientSecret: "sec-camel",
+        merchantKey: "mkey-camel",
+        authReqId: "req-camel",
+        "Ocp-Apim-Subscription-Key": "sub-kebab",
+        pay_token: "om-pay-tok",
+        notif_token: "om-notif-tok",
+        safeField: "ok",
+      },
+    });
+    for (const k of [
+      "accessToken",
+      "refreshToken",
+      "clientSecret",
+      "merchantKey",
+      "authReqId",
+      "Ocp-Apim-Subscription-Key",
+      "pay_token",
+      "notif_token",
+    ]) {
+      expect(multiErr.responseBody[k]).toBe("<redacted>");
+    }
+    expect(multiErr.responseBody["safeField"]).toBe("ok");
   });
 
   it("caps deep recursion in responseBody redaction", () => {
