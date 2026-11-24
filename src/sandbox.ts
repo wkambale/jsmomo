@@ -17,7 +17,9 @@ import {
   validateReferenceId,
 } from "./utils.js";
 
-const PRODUCTION_HOST = new URL(PRODUCTION_BASE_URL).hostname.toLowerCase();
+const PRODUCTION_HOST = new URL(PRODUCTION_BASE_URL).hostname
+  .toLowerCase()
+  .replace(/\.+$/, "");
 
 export interface SandboxProvisionerOptions {
   subscriptionKey?: string;
@@ -39,7 +41,9 @@ export class SandboxProvisioner {
         "SandboxProvisioner can only be used with the sandbox environment",
       );
     }
-    const baseHost = new URL(this.http.validatedBaseUrl).hostname.toLowerCase();
+    const baseHost = new URL(this.http.validatedBaseUrl).hostname
+      .toLowerCase()
+      .replace(/\.+$/, "");
     if (baseHost === PRODUCTION_HOST) {
       throw new JsMomoSDKError(
         "SandboxProvisioner can only be used with the sandbox environment",

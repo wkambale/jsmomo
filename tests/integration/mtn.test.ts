@@ -270,9 +270,16 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     const info = await provisioner.getApiUser(creds.apiUser);
     expect(info.providerCallbackHost).toBe("merchant.example.com");
 
-    // Production environment refuses SandboxProvisioner
+    // Production environment and trailing-dot production host refuse SandboxProvisioner (Issue #17)
     const prodSdk = new JsMomoSDK({ environment: MTN_UGANDA });
     expect(() => prodSdk.createSandboxProvisioner("sub")).toThrow(JsMomoSDKError);
+    const trailingDotProdSdk = new JsMomoSDK({
+      environment: SANDBOX,
+      baseUrl: "https://proxy.momoapi.mtn.com.",
+    });
+    expect(() => trailingDotProdSdk.createSandboxProvisioner("sub")).toThrow(
+      JsMomoSDKError,
+    );
 
     // sdk.sandbox getter uses configured product subscriptionKey
     const sandboxWithCol = new JsMomoSDK(
