@@ -1,0 +1,85 @@
+name: Ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npm audit --audit-level=high
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24", "26"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+      - run: npm ci
+      - run: npm run test:coverage
+
+  packaging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run build
+      - name: Smoke-test packed tarball in ESM and CJS
+        run: |
+          TARBALL=$(npm pack --silent)
+          mkdir -p /tmp/jsmomo-smoke
+          cd /tmp/jsmomo-smoke
+          npm init -y >/dev/null
+          npm install "${GITHUB_WORKSPACE}/${TARBALL}" --silent
+          node -e "const sdk = require('js-momo-sdk'); if (!sdk.VERSION || sdk.SANDBOX !== 'sandbox') process.exit(1); console.log('CJS OK', sdk.VERSION);"
+          node --input-type=module -e "import { VERSION, SANDBOX } from 'js-momo-sdk'; if (!VERSION || SANDBOX !== 'sandbox') process.exit(1); console.log('ESM OK', VERSION);"
