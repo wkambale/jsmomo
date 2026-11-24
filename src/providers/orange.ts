@@ -183,17 +183,18 @@ export class OrangeMoneyConfig {
     } else {
       this.reference = null;
     }
+    const allowLocalhost = env === "sandbox";
     this.returnUrl =
       options.returnUrl !== undefined && options.returnUrl !== null
-        ? validateCallbackUrl(options.returnUrl)
+        ? validateCallbackUrl(options.returnUrl, { allowLocalhost })
         : null;
     this.cancelUrl =
       options.cancelUrl !== undefined && options.cancelUrl !== null
-        ? validateCallbackUrl(options.cancelUrl)
+        ? validateCallbackUrl(options.cancelUrl, { allowLocalhost })
         : null;
     this.notifUrl =
       options.notifUrl !== undefined && options.notifUrl !== null
-        ? validateCallbackUrl(options.notifUrl)
+        ? validateCallbackUrl(options.notifUrl, { allowLocalhost })
         : null;
 
     let prefix = options.apiPathPrefix;
@@ -223,7 +224,9 @@ export class OrangeMoneyConfig {
     this.clientSecret = options.clientSecret;
     this.merchantKey = options.merchantKey;
     this.environment = env;
-    this.baseUrl = validateBaseUrl(options.baseUrl ?? ORANGE_BASE_URL);
+    this.baseUrl = validateBaseUrl(options.baseUrl ?? ORANGE_BASE_URL, {
+      allowLocalhost,
+    });
     this.timeout = validateTimeout(options.timeout ?? 30.0);
     this.maxRetries = validateMaxRetries(options.maxRetries ?? 0);
     this.retryBackoff = validateRetryBackoff(options.retryBackoff ?? 0.5);
@@ -328,6 +331,7 @@ export class OrangeMoneyClient {
       telemetry:
         options.telemetry !== undefined ? options.telemetry : this.config.telemetry,
       providerName: "Orange Money",
+      allowLocalhost: this.config.environment === "sandbox",
     });
   }
 
@@ -396,9 +400,10 @@ export class OrangeMoneyClient {
         fieldName: "reference",
       });
     }
+    const allowLocalhost = this.config.environment === "sandbox";
     for (const u of [params.returnUrl, params.cancelUrl, params.notifUrl]) {
       if (u !== undefined && u !== null) {
-        validateCallbackUrl(u);
+        validateCallbackUrl(u, { allowLocalhost });
       }
     }
     const resolvedNotif = params.notifUrl ?? this.config.notifUrl;
