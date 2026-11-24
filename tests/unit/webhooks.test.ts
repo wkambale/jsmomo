@@ -46,6 +46,70 @@ describe("WebhookHandler", () => {
         { now, replayCheck },
       ),
     ).toThrow("replay");
+
+    // Mutated header variants must not bypass replayCheck (Issue #9)
+    expect(() =>
+      WebhookHandler.verifyTimestampedHmacSignature(
+        payload,
+        `t=${now},v1=${tsSig.toUpperCase()}`,
+        secret,
+        { now, replayCheck },
+      ),
+    ).toThrow("replay");
+    expect(() =>
+      WebhookHandler.verifyTimestampedHmacSignature(
+        payload,
+        `v1=${tsSig},t=${now}`,
+        secret,
+        { now, replayCheck },
+      ),
+    ).toThrow("replay");
+    expect(() =>
+      WebhookHandler.verifyTimestampedHmacSignature(
+        payload,
+        `t=${now},v1=deadbeef,v1=${tsSig}`,
+        secret,
+        { now, replayCheck },
+      ),
+    ).toThrow("replay");
+    expect(() =>
+      WebhookHandler.verifyTimestampedHmacSignature(
+        payload,
+        `t=${now},v1=${tsSig},x=1`,
+        secret,
+        { now, replayCheck },
+      ),
+    ).toThrow("Malformed");
+    expect(() =>
+      WebhookHandler.verifyTimestampedHmacSignature(
+        payload,
+        `t=${now}, v1=${tsSig}`,
+        secret,
+        { now, replayCheck },
+      ),
+    ).toThrow("Malformed");
+
+    // Legitimate multi-v1 key rotation still succeeds on first delivery and blocks replay
+    const freshSeen = new Set<string>();
+    const freshReplay = (hdr: string) => {
+      if (freshSeen.has(hdr)) return false;
+      freshSeen.add(hdr);
+      return true;
+    };
+    WebhookHandler.verifyTimestampedHmacSignature(
+      payload,
+      `t=${now},v1=0000000000000000,v1=${tsSig}`,
+      secret,
+      { now, replayCheck: freshReplay },
+    );
+    expect(() =>
+      WebhookHandler.verifyTimestampedHmacSignature(
+        payload,
+        `t=${now},v1=${tsSig}`,
+        secret,
+        { now, replayCheck: freshReplay },
+      ),
+    ).toThrow("replay");
   });
 
   it("enforces IP/CIDR allowlisting with IPv4, IPv6, IPv4-mapped IPv6, and strict host-bit checks", () => {
