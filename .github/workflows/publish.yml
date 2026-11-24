@@ -65,17 +65,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          node-version: "24"
           cache: "npm"
       - uses: actions/download-artifact@v4
         with:
           name: npm-tarball
           path: artifacts
-      - name: Publish package to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish package to npm via Trusted Publishing (OIDC)
         run: |
+          npm --version
           TARBALL=$(ls artifacts/*.tgz)
           npm publish "${GITHUB_WORKSPACE}/${TARBALL}" --access public --provenance
       - name: Attach tarball and checksums to GitHub Release
