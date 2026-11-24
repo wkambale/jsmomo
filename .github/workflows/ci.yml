@@ -85,3 +85,16 @@ jobs:
           node --input-type=module -e "import { VERSION, SANDBOX, PaymentRouter, WebhookHandler } from 'js-momo-sdk'; if (!VERSION || SANDBOX !== 'sandbox' || !PaymentRouter || !WebhookHandler) process.exit(1); console.log('ESM OK', VERSION);"
           npx --no-install js-momo-sdk --version
           npx --no-install js-momo-sdk carrier +256772123456
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r docs/requirements.txt
+      - run: mkdocs build --strict

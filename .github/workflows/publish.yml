@@ -1,0 +1,90 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Verify release tag matches package.json version
+        if: github.event_name == 'release'
+        run: |
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          PKG_VER=$(node -p "require('./package.json').version")
+          if [ "${TAG_VER}" != "${PKG_VER}" ]; then
+            echo "Release tag (${TAG_VER}) does not match package.json (${PKG_VER})"
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run verify
+      - name: Pack tarball and smoke-test ESM, CJS, and CLI
+        run: |
+          mkdir -p artifacts
+          TARBALL=$(npm pack --pack-destination artifacts --silent)
+          (cd artifacts && sha256sum "${TARBALL}" > SHA256SUMS.txt)
+          mkdir -p /tmp/jsmomo-release-smoke
+          cd /tmp/jsmomo-release-smoke
+          npm init -y >/dev/null
+          npm install "${GITHUB_WORKSPACE}/artifacts/${TARBALL}" --silent
+          node -e "const sdk = require('js-momo-sdk'); if (!sdk.VERSION) process.exit(1); console.log('CJS OK', sdk.VERSION);"
+          node --input-type=module -e "import { VERSION, PaymentRouter } from 'js-momo-sdk'; if (!VERSION || !PaymentRouter) process.exit(1); console.log('ESM OK', VERSION);"
+          npx --no-install js-momo-sdk --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: artifacts/
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/js-momo-sdk
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: "npm"
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+          path: artifacts
+      - name: Publish package to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          TARBALL=$(ls artifacts/*.tgz)
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            npm publish "${TARBALL}" --access public --provenance
+          else
+            npm publish "${TARBALL}" --access public --provenance
+          fi
+      - name: Attach tarball and checksums to GitHub Release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" artifacts/*.tgz artifacts/SHA256SUMS.txt --clobber

@@ -1,0 +1,68 @@
+site_name: JS MoMo SDK
+site_description: Strictly typed TypeScript and JavaScript SDK for MTN Mobile Money, Airtel Money, Wave, Safaricom M-Pesa, Paystack, Flutterwave, and Orange Money with multi-provider routing.
+site_url: https://wkambale.github.io/jsmomo/
+repo_url: https://github.com/wkambale/jsmomo
+repo_name: wkambale/jsmomo
+copyright: Copyright &copy; 2026 Wesley Kambale
+docs_dir: docs
+site_dir: site
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+extra_css:
+  - stylesheets/design.css
+
+extra_javascript:
+  - javascripts/scroll.js
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Authentication: authentication.md
+  - Products:
+      - Collection: collection.md
+      - Disbursement: disbursement.md
+      - Remittance: remittance.md
+      - Airtel Money: airtel.md
+  - Guides:
+      - Sandbox provisioning: sandbox.md
+      - Multi-provider orchestration: providers.md
+      - Resilience and observability: resilience.md
+      - Webhooks: webhooks.md
+      - TypeScript & ESM/CJS: typescript.md
+      - Error handling: error-handling.md
+  - CLI: cli.md
+  - Project:
+      - Changelog: changelog.md
+      - Contributing: contributing.md
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+  - tables
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
