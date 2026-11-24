@@ -81,5 +81,7 @@ jobs:
           cd /tmp/jsmomo-smoke
           npm init -y >/dev/null
           npm install "${GITHUB_WORKSPACE}/${TARBALL}" --silent
-          node -e "const sdk = require('js-momo-sdk'); if (!sdk.VERSION || sdk.SANDBOX !== 'sandbox') process.exit(1); console.log('CJS OK', sdk.VERSION);"
-          node --input-type=module -e "import { VERSION, SANDBOX } from 'js-momo-sdk'; if (!VERSION || SANDBOX !== 'sandbox') process.exit(1); console.log('ESM OK', VERSION);"
+          node -e "const sdk = require('js-momo-sdk'); if (!sdk.VERSION || sdk.SANDBOX !== 'sandbox' || !sdk.PaymentRouter || !sdk.WebhookHandler) process.exit(1); console.log('CJS OK', sdk.VERSION);"
+          node --input-type=module -e "import { VERSION, SANDBOX, PaymentRouter, WebhookHandler } from 'js-momo-sdk'; if (!VERSION || SANDBOX !== 'sandbox' || !PaymentRouter || !WebhookHandler) process.exit(1); console.log('ESM OK', VERSION);"
+          npx --no-install js-momo-sdk --version
+          npx --no-install js-momo-sdk carrier +256772123456
