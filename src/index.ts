@@ -1,3 +1,24 @@
+export {
+  AIRTEL_PRODUCTION_BASE_URL,
+  AIRTEL_SANDBOX_BASE_URL,
+  AirtelAuth,
+  type AirtelBalanceResponse,
+  AirtelClient,
+  type AirtelClientOptions,
+  AirtelCollection,
+  AirtelConfig,
+  type AirtelConfigOptions,
+  AirtelDisbursement,
+  type AirtelRequestToPayParams,
+  type AirtelStatus,
+  type AirtelTransactionDetails,
+  AirtelTransactionResponse,
+  type AirtelTransferParams,
+  type AirtelWalletDetails,
+  checkAirtelResponseStatus,
+  encryptAirtelPin,
+  normaliseAirtelMsisdn,
+} from "./airtel/index.js";
 export { TokenCache } from "./auth.js";
 export { JsMomoSDK, type JsMomoSDKOptions } from "./client.js";
 export {
