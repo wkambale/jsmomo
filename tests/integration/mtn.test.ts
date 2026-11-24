@@ -259,6 +259,8 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     );
     const provisioner = sdk.createSandboxProvisioner("sandbox-sub-key");
     expect(inspect(provisioner)).not.toContain("sandbox-sub-key");
+    expect(JSON.stringify(provisioner)).not.toContain("sandbox-sub-key");
+    expect(provisioner.toJSON()["subscriptionKey"]).toBe("<redacted>");
 
     const creds = await provisioner.provision({ callbackHost: "merchant.example.com" });
     expect(creds.apiKey).toBe("sandbox-secret-key");
