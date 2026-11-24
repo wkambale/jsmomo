@@ -16,7 +16,7 @@ export class TokenCache {
   private readonly inflight = new Map<string, Promise<string>>();
 
   private static makeKey(product: string, namespace: string): string {
-    return namespace ? `${namespace}:${product}` : product;
+    return `${namespace.length}:${namespace}:${product}`;
   }
 
   /** Return a valid cached token or `null` if absent or expired. */
