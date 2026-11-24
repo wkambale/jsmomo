@@ -1,5 +1,13 @@
 import { createHmac, generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -138,6 +146,31 @@ describe("JS MoMo SDK CLI", () => {
       api_key: string;
     };
     expect(saved.api_key).toContain("mock-api-key-");
+
+    // Existing permissive file is tightened to 0o600 and symlinks are refused (Issue #14)
+    if (process.platform !== "win32") {
+      const existingFile = join(tmpDir, "existing-creds.json");
+      writeFileSync(existingFile, "old", { mode: 0o644 });
+      chmodSync(existingFile, 0o644);
+      const overwrite = await captureCli(
+        ["sandbox", "provision", "--output-file", existingFile],
+        { env },
+      );
+      expect(overwrite.code).toBe(0);
+      expect(statSync(existingFile).mode & 0o777).toBe(0o600);
+
+      const symTarget = join(tmpDir, "sym-target.json");
+      writeFileSync(symTarget, "untouched", "utf8");
+      const symLink = join(tmpDir, "creds-link.json");
+      symlinkSync(symTarget, symLink);
+      const symRes = await captureCli(
+        ["sandbox", "provision", "--output-file", symLink],
+        { env },
+      );
+      expect(symRes.code).toBe(1);
+      expect(symRes.stderr).toContain("symbolic link");
+      expect(readFileSync(symTarget, "utf8")).toBe("untouched");
+    }
 
     const userRes = await captureCli(["sandbox", "get-user", saved.api_user], { env });
     expect(userRes.code).toBe(0);

@@ -1,4 +1,13 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fchmodSync,
+  fstatSync,
+  ftruncateSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 
 import { AirtelClient } from "./airtel/client.js";
 import { AirtelConfig, encryptAirtelPin } from "./airtel/config.js";
@@ -232,6 +241,38 @@ function echoJson(io: CliIO, payload: unknown): void {
   io.stdout(JSON.stringify(payload, null, 2));
 }
 
+function writeSecretFileStrict(filePath: string, content: string): void {
+  const openFlags =
+    constants.O_WRONLY | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0);
+  let fd: number;
+  try {
+    fd = openSync(filePath, openFlags, 0o600);
+  } catch (err) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "ELOOP"
+    ) {
+      throw new RangeError("Refusing to write credentials to a symbolic link", {
+        cause: err,
+      });
+    }
+    throw err;
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) {
+      throw new RangeError("Output file path must be a regular file");
+    }
+    fchmodSync(fd, 0o600);
+    ftruncateSync(fd, 0);
+    writeFileSync(fd, content, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Execute the JS MoMo SDK CLI and return a POSIX exit code (0 = ok, 1 = error). */
 export async function runCli(
   argv: readonly string[],
@@ -316,10 +357,9 @@ export async function runCli(
         const result = await prov.provision({ callbackHost });
         const outPath = getOpt(flags, ["output-file"]);
         if (outPath) {
-          writeFileSync(
+          writeSecretFileStrict(
             outPath,
             `${JSON.stringify({ api_user: result.apiUser, api_key: result.apiKey }, null, 2)}\n`,
-            { encoding: "utf8", mode: 0o600 },
           );
           echoJson(io, {
             api_user: result.apiUser,
