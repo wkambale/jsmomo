@@ -1,0 +1,151 @@
+---
+hide:
+  - toc
+---
+
+<section class="pm-hero">
+  <svg class="pm-hero__rings" viewBox="0 0 240 240" fill="none" aria-hidden="true">
+    <circle cx="150" cy="90" r="52" stroke="rgba(251, 191, 36, 0.32)" stroke-width="1.5"/>
+    <circle cx="166" cy="102" r="82" stroke="rgba(226, 232, 240, 0.22)" stroke-width="1.5"/>
+    <circle cx="138" cy="78" r="110" stroke="rgba(226, 232, 240, 0.12)" stroke-width="1.5"/>
+  </svg>
+  <div class="pm-hero__eyebrow">
+    <span class="pm-hero__eyebrow-line" aria-hidden="true"></span>
+    <span>TypeScript / JavaScript SDK version 1.0.0</span>
+  </div>
+  <h1 class="pm-hero__title">JS MoMo SDK for African Mobile Money and Payment Rails</h1>
+  <p class="pm-hero__lead">A zero-dependency, strictly typed TypeScript and JavaScript SDK for MTN Mobile Money, Airtel Money, Wave, Safaricom M-Pesa, Paystack, Flutterwave, and Orange Money behind a unified <code>PaymentRouter</code>. Ships dual ESM and CommonJS bundles with automatic token caching, strict input validation, and verified webhook security.</p>
+  <div class="pm-hero__actions">
+    <a class="pm-btn-primary" href="quickstart/">Get started</a>
+    <a class="pm-btn-secondary" href="authentication/">Configure authentication</a>
+  </div>
+  <svg class="pm-hero__chevron" viewBox="0 0 1200 18" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <pattern id="pm-chevron-pattern" width="36" height="18" patternUnits="userSpaceOnUse">
+        <path d="M0 18 L18 4 L36 18" fill="none" stroke="rgba(251, 191, 36, 0.32)" stroke-width="1.5"/>
+      </pattern>
+    </defs>
+    <rect width="1200" height="18" fill="url(#pm-chevron-pattern)"/>
+  </svg>
+</section>
+
+<div class="pm-badges">
+  <a href="https://www.npmjs.com/package/js-momo-sdk"><img src="https://img.shields.io/npm/v/js-momo-sdk.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/js-momo-sdk"><img src="https://img.shields.io/node/v/js-momo-sdk.svg" alt="Node versions"></a>
+  <a href="https://github.com/wkambale/jsmomo/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
+  <a href="https://github.com/wkambale/jsmomo/actions/workflows/ci.yml"><img src="https://github.com/wkambale/jsmomo/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</div>
+
+## Supported products and providers
+
+JS MoMo SDK covers every MTN MoMo Open API product alongside Airtel Money and pan-African payment gateways behind a unified routing layer.
+
+<div class="pm-card-grid">
+  <article class="pm-card">
+    <p class="pm-card__eyebrow">MTN MoMo</p>
+    <div class="pm-card__body">
+      <h3 class="pm-card__title">Collection</h3>
+      <p class="pm-card__text">Request payments, initiate withdrawals, query balances, and exchange CIBA OAuth2 consent tokens.</p>
+      <a class="pm-card__link" href="collection/">Explore collection</a>
+    </div>
+  </article>
+  <article class="pm-card">
+    <p class="pm-card__eyebrow">MTN MoMo</p>
+    <div class="pm-card__body">
+      <h3 class="pm-card__title">Disbursement and remittance</h3>
+      <p class="pm-card__text">Execute subscriber transfers, v2 deposits, refunds, wallet-to-wallet remittances, and account validation.</p>
+      <a class="pm-card__link" href="disbursement/">Explore disbursement</a>
+    </div>
+  </article>
+  <article class="pm-card">
+    <p class="pm-card__eyebrow">Airtel Open API</p>
+    <div class="pm-card__body">
+      <h3 class="pm-card__title">Airtel Money</h3>
+      <p class="pm-card__text">Initiate USSD Push collections, RSA-encrypted PIN disbursements, status inquiries, and wallet balances.</p>
+      <a class="pm-card__link" href="airtel/">Explore Airtel Money</a>
+    </div>
+  </article>
+  <article class="pm-card">
+    <p class="pm-card__eyebrow">Multi-provider</p>
+    <div class="pm-card__body">
+      <h3 class="pm-card__title">PaymentRouter and 7 rails</h3>
+      <p class="pm-card__text">Route across MTN MoMo, Airtel Money, Wave, Safaricom M-Pesa, Paystack, Flutterwave, and Orange Money.</p>
+      <a class="pm-card__link" href="providers/">Explore providers</a>
+    </div>
+  </article>
+</div>
+
+<div class="pm-band pm-band--sand" markdown="1">
+
+<div class="pm-band__eyebrow">
+  <span class="pm-band__eyebrow-line" aria-hidden="true"></span>
+  <span>Quickstart</span>
+</div>
+
+## Install and query a balance in ten lines
+
+Install `js-momo-sdk` from npm and import the ESM or CommonJS entrypoint:
+
+```bash
+npm install js-momo-sdk
+```
+
+```ts
+import { JsMomoSDK, JsMomoSDKConfig, ProductConfig } from "js-momo-sdk";
+
+const config = new JsMomoSDKConfig({
+  environment: "sandbox",
+  collection: new ProductConfig({
+    subscriptionKey: "your-subscription-key",
+    apiUser: "550e8400-e29b-41d4-a716-446655440000",
+    apiKey: "your-api-key",
+  }),
+});
+
+const client = new JsMomoSDK(config);
+const balance = await client.collection.getBalance();
+console.log(`Balance: ${balance.availableBalance} ${balance.currency}`);
+client.close();
+```
+
+</div>
+
+<div class="pm-spotlight-grid">
+  <div class="pm-spotlight pm-spotlight--accent">
+    <h3>Zero dependencies, full TypeScript</h3>
+    <p>Backed by native <code>fetch</code>, <code>node:crypto</code>, and <code>node:http</code> with zero runtime dependencies. Ships dual ESM and CommonJS bundles plus strict <code>.d.ts</code> declarations for Node.js 18+.</p>
+  </div>
+  <div class="pm-spotlight pm-spotlight--brand">
+    <h3>Security by default</h3>
+    <p>Every client enforces HTTPS endpoints, disables automatic HTTP redirects, bounds response sizes, validates canonical UUID v4 references, redacts credentials from logs and tracebacks, and verifies webhook signatures and source IPs.</p>
+  </div>
+</div>
+
+<div class="pm-band pm-band--mist" markdown="1">
+
+<div class="pm-band__eyebrow">
+  <span class="pm-band__eyebrow-line" aria-hidden="true"></span>
+  <span>Documentation directory</span>
+</div>
+
+## Explore the guides
+
+<ul class="pm-directory">
+  <li><a href="quickstart/">Quickstart guide</a></li>
+  <li><a href="authentication/">Authentication configuration</a></li>
+  <li><a href="providers/">Multi-provider orchestration</a></li>
+  <li><a href="resilience/">Resilience and observability</a></li>
+  <li><a href="collection/">Collection API reference</a></li>
+  <li><a href="disbursement/">Disbursement API reference</a></li>
+  <li><a href="remittance/">Remittance API reference</a></li>
+  <li><a href="airtel/">Airtel Money reference</a></li>
+  <li><a href="sandbox/">Sandbox provisioning</a></li>
+  <li><a href="webhooks/">Webhook processing</a></li>
+  <li><a href="typescript/">TypeScript and ESM/CJS usage</a></li>
+  <li><a href="error-handling/">Error handling</a></li>
+  <li><a href="cli/">Command line interface</a></li>
+  <li><a href="changelog/">Changelog</a></li>
+  <li><a href="contributing/">Contributing guide</a></li>
+</ul>
+
+</div>
