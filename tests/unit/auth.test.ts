@@ -16,6 +16,12 @@ describe("TokenCache", () => {
     expect(String(cache)).not.toContain("tok-sandbox");
     expect(inspect(cache)).not.toContain("tok-prod");
     expect(String(cache)).toContain("sandbox:collection");
+
+    // Delimiter ambiguity must not collide across namespaces/products (Issue #18)
+    cache.set("b:c", "tok-tenant-a", 3600, { namespace: "a" });
+    expect(cache.get("c", { namespace: "a:b" })).toBeNull();
+    cache.set("a:b", "tok-default-ns", 3600);
+    expect(cache.get("b", { namespace: "a" })).toBeNull();
   });
 
   it("supports CAS expectedToken invalidation so stale 401 never evicts fresh token", () => {
