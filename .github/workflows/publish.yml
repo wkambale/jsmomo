@@ -77,14 +77,15 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           TARBALL=$(ls artifacts/*.tgz)
-          if [ -n "${NODE_AUTH_TOKEN}" ]; then
-            npm publish "${TARBALL}" --access public --provenance
-          else
-            npm publish "${TARBALL}" --access public --provenance
-          fi
+          npm publish "${GITHUB_WORKSPACE}/${TARBALL}" --access public --provenance
       - name: Attach tarball and checksums to GitHub Release
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" artifacts/*.tgz artifacts/SHA256SUMS.txt --clobber
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" != "release" ]; then
+            TAG="v$(node -p "require('./package.json').version")"
+          fi
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" artifacts/*.tgz artifacts/SHA256SUMS.txt --clobber
+          fi
