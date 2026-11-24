@@ -216,6 +216,14 @@ export class AirtelAuth {
     return `AirtelAuth(clientId=${JSON.stringify(this.clientId)}, clientSecret=<redacted>, baseUrl=${JSON.stringify(this.baseUrl)})`;
   }
 
+  public toJSON(): Record<string, unknown> {
+    return {
+      clientId: this.clientId,
+      clientSecret: "<redacted>",
+      baseUrl: this.baseUrl,
+    };
+  }
+
   public [inspect.custom](): string {
     return this.toString();
   }

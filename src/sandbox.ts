@@ -125,6 +125,13 @@ export class SandboxProvisioner {
     return `SandboxProvisioner(subscriptionKey=<redacted>, environment=${JSON.stringify(env)})`;
   }
 
+  public toJSON(): Record<string, unknown> {
+    return {
+      subscriptionKey: "<redacted>",
+      environment: this.config?.environment ?? null,
+    };
+  }
+
   public [inspect.custom](): string {
     return this.toString();
   }

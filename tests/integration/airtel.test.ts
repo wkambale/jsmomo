@@ -372,6 +372,17 @@ describe("Airtel Money SDK", () => {
     const auth = new AirtelAuth("cid", "secret-val", AIRTEL_SANDBOX_BASE_URL);
     expect(inspect(auth)).not.toContain("secret-val");
     expect(auth.toString()).toContain("<redacted>");
+    expect(JSON.stringify(auth)).not.toContain("secret-val");
+    expect(auth.toJSON()["clientSecret"]).toBe("<redacted>");
+    const serializedClient = JSON.stringify(
+      new AirtelClient({
+        clientId: "cid",
+        clientSecret: "client-secret-val",
+        country: "UG",
+        currency: "UGX",
+      }),
+    );
+    expect(serializedClient).not.toContain("client-secret-val");
 
     // AirtelAuth constructor validates baseUrl, timeout, maxResponseBytes, and credentials (Issue #10)
     expect(() => new AirtelAuth("cid", "sec", "http://169.254.169.254")).toThrow(
