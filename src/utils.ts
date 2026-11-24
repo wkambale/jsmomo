@@ -221,6 +221,10 @@ function isDisallowedIpv6(ip: string, allowLocalhost: boolean): boolean {
   if (words.slice(0, 7).every((w) => w === 0) && words[7] === 1) {
     return !allowLocalhost;
   }
+  // Deprecated IPv4-compatible ::/96 (e.g. ::127.0.0.1, ::169.254.169.254)
+  if (words.slice(0, 6).every((w) => w === 0)) {
+    return true;
+  }
   // IPv4-mapped ::ffff:a.b.c.d (never permitted even when allowLocalhost=true)
   if (words.slice(0, 5).every((w) => w === 0) && words[5] === 0xffff) {
     const a = (words[6]! >> 8) & 0xff;
@@ -229,9 +233,30 @@ function isDisallowedIpv6(ip: string, allowLocalhost: boolean): boolean {
     const d = words[7]! & 0xff;
     return isDisallowedIpv4(`${a}.${b}.${c}.${d}`, false);
   }
+  // RFC 2765 SIIT IPv4-translated ::ffff:0:0:0/96
+  if (
+    words.slice(0, 4).every((w) => w === 0) &&
+    words[4] === 0xffff &&
+    words[5] === 0
+  ) {
+    return true;
+  }
   const first = words[0]!;
+  // RFC 6052 / RFC 8215 NAT64 prefixes (64:ff9b::/96 and 64:ff9b:1::/48)
+  if (first === 0x0064 && words[1] === 0xff9b) {
+    if (words[2] === 0x0001 || words.slice(2, 6).every((w) => w === 0)) {
+      return true;
+    }
+  }
+  // RFC 6666 discard-only 100::/64
+  if (first === 0x0100 && words[1] === 0 && words[2] === 0 && words[3] === 0) {
+    return true;
+  }
+  if (first === 0x2002) return true; // RFC 3056 / 7526 6to4 IPv4-embedding
+  if (first === 0x2001 && words[1] === 0x0000) return true; // RFC 4380 Teredo
   if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
   if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((first & 0xffc0) === 0xfec0) return true; // fec0::/10 deprecated site-local
   if ((first & 0xff00) === 0xff00) return true; // ff00::/8 multicast
   if (first === 0x2001 && words[1] === 0x0db8) return true; // documentation
   return false;
@@ -242,7 +267,7 @@ export function isDisallowedIpHost(host: string, allowLocalhost: boolean): boole
   if (!normalized) {
     return true;
   }
-  if (normalized === "localhost") {
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) {
     return !allowLocalhost;
   }
   const bare =

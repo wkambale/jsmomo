@@ -64,6 +64,15 @@ describe("utils", () => {
       "https://[2001:db8::1]",
       "https://[::ffff:127.0.0.1]",
       "https://[::ffff:169.254.169.254]",
+      "https://[::127.0.0.1]",
+      "https://[::169.254.169.254]",
+      "https://[::ffff:0:127.0.0.1]",
+      "https://[64:ff9b::169.254.169.254]",
+      "https://[64:ff9b:1::10.0.0.1]",
+      "https://[2002:a9fe:a9fe::1]",
+      "https://[2001::1]",
+      "https://[fec0::1]",
+      "https://[100::1]",
       "https://0.0.0.0",
       "https://192.0.2.1",
       "https://198.18.0.1",
@@ -81,6 +90,18 @@ describe("utils", () => {
     expect(() =>
       validateBaseUrl("http://127.0.0.1:8080", { allowLocalhost: false }),
     ).toThrow(JsMomoSDKError);
+    for (const sub of ["https://api.localhost", "https://127.localhost."]) {
+      expect(() => validateBaseUrl(sub, { allowLocalhost: false }), sub).toThrow(
+        JsMomoSDKError,
+      );
+      expect(
+        () => validateCallbackUrl(`${sub}/hook`, { allowLocalhost: false }),
+        sub,
+      ).toThrow(RangeError);
+      expect(() => validateCallbackHost(sub, { allowLocalhost: false }), sub).toThrow(
+        RangeError,
+      );
+    }
     expect(validateCallbackHost("merchant.example.com")).toBe("merchant.example.com");
     expect(validateCallbackHost("https://merchant.example.com/hook")).toBe(
       "https://merchant.example.com/hook",
