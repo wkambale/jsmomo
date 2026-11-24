@@ -98,6 +98,36 @@ describe("Framework webhook adapters", () => {
     await expect(
       verifyWebWebhookRequest(tooBigReq, { secret, maxBodyBytes: 64 }),
     ).rejects.toThrow("exceeds maximum");
+
+    // Duplicate Fetch X-Signature headers coalesced with ", " must be rejected (Issue #9)
+    const now = 1700000000;
+    const tsSig = createHmac("sha256", secret)
+      .update(`${now}.`)
+      .update(bodyBuf)
+      .digest("hex");
+    const splitHeaders = new Headers();
+    splitHeaders.append("X-Signature", `t=${now}`);
+    splitHeaders.append("X-Signature", `v1=${tsSig}`);
+    const splitReq = new Request("https://app.example.com/webhooks", {
+      method: "POST",
+      headers: splitHeaders,
+      body: bodyBuf,
+    });
+    await expect(
+      verifyWebWebhookRequest(splitReq, { secret, timestamped: true, now }),
+    ).rejects.toThrow(WebhookVerificationError);
+
+    const shadowedHeaders = new Headers();
+    shadowedHeaders.append("X-Signature", `t=${now},v1=deadbeef`);
+    shadowedHeaders.append("X-Signature", `v1=${tsSig}`);
+    const shadowedReq = new Request("https://app.example.com/webhooks", {
+      method: "POST",
+      headers: shadowedHeaders,
+      body: bodyBuf,
+    });
+    await expect(
+      verifyWebWebhookRequest(shadowedReq, { secret, timestamped: true, now }),
+    ).rejects.toThrow(WebhookVerificationError);
   });
 
   it("supports Express middleware and Fastify preHandler hooks", async () => {

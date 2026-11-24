@@ -162,7 +162,12 @@ export function verifyTimestampedHmacSignature(
     throw new WebhookVerificationError("Invalid reference time for webhook check");
   }
 
-  const parts = signatureHeader.split(",");
+  const trimmedHeader = signatureHeader.trim();
+  if (/\s/.test(trimmedHeader)) {
+    throw new WebhookVerificationError("Malformed timestamped webhook signature");
+  }
+
+  const parts = trimmedHeader.split(",");
   if (parts.length > MAX_SIGNATURE_PARTS) {
     throw new WebhookVerificationError("Malformed timestamped webhook signature");
   }
@@ -170,16 +175,15 @@ export function verifyTimestampedHmacSignature(
   let timestampStr: string | null = null;
   const signatures: string[] = [];
   for (const part of parts) {
-    const trimmed = part.trim();
-    if (!trimmed) {
+    if (!part) {
       throw new WebhookVerificationError("Malformed timestamped webhook signature");
     }
-    const eqIdx = trimmed.indexOf("=");
+    const eqIdx = part.indexOf("=");
     if (eqIdx <= 0) {
       throw new WebhookVerificationError("Malformed timestamped webhook signature");
     }
-    const key = trimmed.slice(0, eqIdx).trim();
-    const val = trimmed.slice(eqIdx + 1).trim();
+    const key = part.slice(0, eqIdx);
+    const val = part.slice(eqIdx + 1);
     if (!key) {
       throw new WebhookVerificationError("Malformed timestamped webhook signature");
     }
@@ -198,6 +202,8 @@ export function verifyTimestampedHmacSignature(
         throw new WebhookVerificationError("Malformed timestamped webhook signature");
       }
       signatures.push(val.toLowerCase());
+    } else {
+      throw new WebhookVerificationError("Malformed timestamped webhook signature");
     }
   }
 
@@ -238,7 +244,8 @@ export function verifyTimestampedHmacSignature(
   if (!matched) {
     throw new WebhookVerificationError("Webhook signature verification failed");
   }
-  if (options.replayCheck && !options.replayCheck(signatureHeader, rawBytes, ts)) {
+  const canonicalSignature = `t=${timestampStr},v1=${expectedHex}`;
+  if (options.replayCheck && !options.replayCheck(canonicalSignature, rawBytes, ts)) {
     throw new WebhookVerificationError("Webhook signature replay detected");
   }
 }
