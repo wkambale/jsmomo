@@ -373,6 +373,35 @@ describe("Airtel Money SDK", () => {
     expect(inspect(auth)).not.toContain("secret-val");
     expect(auth.toString()).toContain("<redacted>");
 
+    // AirtelAuth constructor validates baseUrl, timeout, maxResponseBytes, and credentials (Issue #10)
+    expect(() => new AirtelAuth("cid", "sec", "http://169.254.169.254")).toThrow(
+      JsMomoSDKError,
+    );
+    expect(() => new AirtelAuth("cid", "sec", "http://openapi.airtel.africa")).toThrow(
+      JsMomoSDKError,
+    );
+    expect(
+      () =>
+        new AirtelAuth("cid", "sec", "http://127.0.0.1:8080", {
+          allowLocalhost: false,
+        }),
+    ).toThrow(JsMomoSDKError);
+    expect(
+      () => new AirtelAuth("cid", "sec", AIRTEL_SANDBOX_BASE_URL, { timeout: -1 }),
+    ).toThrow(RangeError);
+    expect(
+      () =>
+        new AirtelAuth("cid", "sec", AIRTEL_SANDBOX_BASE_URL, {
+          maxResponseBytes: 0,
+        }),
+    ).toThrow(RangeError);
+    expect(() => new AirtelAuth(" ", "sec", AIRTEL_SANDBOX_BASE_URL)).toThrow(
+      RangeError,
+    );
+    expect(() => new AirtelAuth("cid", " ", AIRTEL_SANDBOX_BASE_URL)).toThrow(
+      RangeError,
+    );
+
     await expect(
       auth.getToken(async () => {
         throw new TypeError("offline");

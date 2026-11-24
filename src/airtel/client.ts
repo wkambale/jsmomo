@@ -227,7 +227,11 @@ export class AirtelClient {
       this.config.clientId,
       this.config.clientSecret,
       this.baseUrl,
-      { timeout: this.config.timeout, maxResponseBytes: this.maxResponseBytes },
+      {
+        timeout: this.config.timeout,
+        maxResponseBytes: this.maxResponseBytes,
+        allowLocalhost: this.config.environment === "sandbox",
+      },
     );
   }
 

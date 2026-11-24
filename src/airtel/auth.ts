@@ -9,7 +9,7 @@ import {
   formatErrorDetail,
   readBoundedResponse,
 } from "../http.js";
-import { validateHeaderValue } from "../utils.js";
+import { validateBaseUrl, validateHeaderValue, validateTimeout } from "../utils.js";
 
 const MAX_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
 
@@ -126,13 +126,33 @@ export class AirtelAuth {
     clientId: string,
     clientSecret: string,
     baseUrl: string,
-    options: { timeout?: number; maxResponseBytes?: number } = {},
+    options: {
+      timeout?: number;
+      maxResponseBytes?: number;
+      allowLocalhost?: boolean;
+    } = {},
   ) {
+    if (typeof clientId !== "string" || !clientId.trim()) {
+      throw new RangeError("clientId must be a non-empty string");
+    }
+    if (typeof clientSecret !== "string" || !clientSecret.trim()) {
+      throw new RangeError("clientSecret must be a non-empty string");
+    }
+    validateHeaderValue(clientId, { fieldName: "clientId" });
+    validateHeaderValue(clientSecret, { fieldName: "clientSecret" });
+    const validatedBaseUrl = validateBaseUrl(baseUrl, {
+      allowLocalhost: options.allowLocalhost ?? true,
+    });
+    const timeout = validateTimeout(options.timeout ?? 30.0);
+    const maxBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    if (typeof maxBytes !== "number" || !Number.isInteger(maxBytes) || maxBytes <= 0) {
+      throw new RangeError("maxResponseBytes must be a positive integer");
+    }
     this.clientId = clientId;
     this.clientSecret = clientSecret;
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
-    this.timeoutSec = options.timeout ?? 30.0;
-    this.maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    this.baseUrl = validatedBaseUrl.replace(/\/+$/, "");
+    this.timeoutSec = timeout;
+    this.maxResponseBytes = maxBytes;
   }
 
   public async getToken(fetchImpl: FetchLike = globalThis.fetch): Promise<string> {
