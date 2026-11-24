@@ -1,6 +1,6 @@
 {
   "name": "js-momo-sdk",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "JS MoMo SDK: Strictly typed TypeScript/JavaScript SDK for African mobile money and payment APIs (MTN MoMo, Airtel Money, Wave, Safaricom M-Pesa, Paystack, Flutterwave, Orange Money)",
   "keywords": [
     "mtn",

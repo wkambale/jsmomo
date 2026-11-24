@@ -6,8 +6,8 @@ The following versions of JS MoMo SDK (`js-momo-sdk`) currently receive security
 
 | Version | Supported |
 | --- | --- |
-| 1.0.x | Yes |
-| < 1.0.0 | No |
+| 1.2.x | Yes |
+| < 1.2.0 | No |
 
 ## Reporting a vulnerability
 
