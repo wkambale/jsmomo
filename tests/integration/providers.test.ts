@@ -591,6 +591,50 @@ describe("Pan-African Providers Integration", () => {
         }),
     ).toThrow("must not use the sandbox");
 
+    // Production Orange Money rejects plaintext localhost / loopback URLs (Issue #12)
+    expect(
+      () =>
+        new OrangeMoneyConfig({
+          clientId: "cid",
+          clientSecret: "csec",
+          merchantKey: "mkey",
+          environment: "production",
+          apiPathPrefix: "/orange-money-webpay/sn/v1",
+          baseUrl: "http://127.0.0.1:8080",
+        }),
+    ).toThrow(JsMomoSDKError);
+    expect(
+      () =>
+        new OrangeMoneyConfig({
+          clientId: "cid",
+          clientSecret: "csec",
+          merchantKey: "mkey",
+          environment: "production",
+          apiPathPrefix: "/orange-money-webpay/sn/v1",
+          notifUrl: "http://localhost:3000/notif",
+        }),
+    ).toThrow(RangeError);
+    const prodOrangeClient = new OrangeMoneyClient(
+      {
+        clientId: "cid",
+        clientSecret: "csec",
+        merchantKey: "mkey",
+        environment: "production",
+        apiPathPrefix: "/orange-money-webpay/sn/v1",
+        returnUrl: "https://shop.example.com/ret",
+        cancelUrl: "https://shop.example.com/cancel",
+        notifUrl: "https://shop.example.com/notif",
+      },
+      { fetch: async () => jsonResp({}) },
+    );
+    await expect(
+      prodOrangeClient.createWebPayment({
+        amount: "1000",
+        currency: "XOF",
+        notifUrl: "http://[::1]:9000/hook",
+      }),
+    ).rejects.toThrow(RangeError);
+
     const cfg = new OrangeMoneyConfig({
       clientId: "cid",
       clientSecret: "csec",
