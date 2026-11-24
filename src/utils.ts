@@ -373,7 +373,8 @@ export function validateMatchingOrigin(
   }
   const same =
     cfg.protocol.toLowerCase() === inj.protocol.toLowerCase() &&
-    cfg.hostname.toLowerCase() === inj.hostname.toLowerCase() &&
+    cfg.hostname.toLowerCase().replace(/\.+$/, "") ===
+      inj.hostname.toLowerCase().replace(/\.+$/, "") &&
     normalizePort(cfg.protocol.toLowerCase(), cfg.port) ===
       normalizePort(inj.protocol.toLowerCase(), inj.port);
   if (!same) {
