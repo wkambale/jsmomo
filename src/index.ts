@@ -1,4 +1,5 @@
 export { TokenCache } from "./auth.js";
+export { JsMomoSDK, type JsMomoSDKOptions } from "./client.js";
 export {
   JsMomoSDKConfig,
   type JsMomoSDKConfigOptions,
@@ -33,6 +34,44 @@ export {
   TransactionFailedError,
   WebhookVerificationError,
 } from "./exceptions.js";
+export {
+  DEFAULT_MAX_RESPONSE_BYTES,
+  type FetchLike,
+  HttpClient,
+  type HttpClientOptions,
+  type HttpRequestOptions,
+  type HttpResponse,
+  parseJsonObject,
+  sanitizeTelemetryPath,
+} from "./http.js";
+export {
+  AccountHolderIdType,
+  ApiKeyResult,
+  type ApiUserInfo,
+  type Balance,
+  type BasicUserInfo,
+  BcAuthorizeResponse,
+  OAuth2TokenResponse,
+  type Party,
+  ProvisionResult,
+  TokenResponse,
+  TransactionResult,
+  TransactionStatus,
+} from "./models.js";
+export { BaseProduct } from "./products/base.js";
+export {
+  type BcAuthorizeParams,
+  Collection,
+  type CreateOAuth2TokenParams,
+  type RequestToPayParams,
+} from "./products/collection.js";
+export {
+  Disbursement,
+  type DisbursementTransferParams,
+  type RefundParams,
+} from "./products/disbursement.js";
+export { Remittance } from "./products/remittance.js";
+export { SandboxProvisioner, type SandboxProvisionerOptions } from "./sandbox.js";
 export type {
   RequestTelemetryEvent,
   TelemetryHook,
