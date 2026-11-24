@@ -148,6 +148,7 @@ class MockHttpError extends Error {
 async function readRequestBody(
   req: IncomingMessage,
   maxBodyBytes: number,
+  timeoutMs: number,
 ): Promise<Buffer> {
   const clHeader = req.headers["content-length"];
   if (Array.isArray(clHeader)) {
@@ -167,28 +168,40 @@ async function readRequestBody(
     const chunks: Buffer[] = [];
     let total = 0;
     let settled = false;
+    const deadline = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new MockHttpError(408, "Request timeout"));
+        req.destroy();
+      }
+    }, timeoutMs);
+    if (typeof deadline === "object" && "unref" in deadline) {
+      deadline.unref();
+    }
+    const finish = (cb: () => void) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(deadline);
+        cb();
+      }
+    };
     req.on("data", (chunk: Buffer) => {
       if (settled) return;
       total += chunk.byteLength;
       if (total > maxBodyBytes) {
-        settled = true;
-        reject(new MockHttpError(413, "Payload too large"));
-        req.resume();
+        finish(() => {
+          reject(new MockHttpError(413, "Payload too large"));
+          req.resume();
+        });
         return;
       }
       chunks.push(chunk);
     });
     req.on("end", () => {
-      if (!settled) {
-        settled = true;
-        resolve(Buffer.concat(chunks, total));
-      }
+      finish(() => resolve(Buffer.concat(chunks, total)));
     });
     req.on("error", (err) => {
-      if (!settled) {
-        settled = true;
-        reject(err);
-      }
+      finish(() => reject(err));
     });
   });
 }
@@ -196,8 +209,9 @@ async function readRequestBody(
 async function readJsonBody(
   req: IncomingMessage,
   maxBodyBytes: number,
+  timeoutMs: number,
 ): Promise<Record<string, unknown>> {
-  const raw = await readRequestBody(req, maxBodyBytes);
+  const raw = await readRequestBody(req, maxBodyBytes, timeoutMs);
   if (raw.byteLength === 0) return {};
   let parsed: unknown;
   try {
@@ -249,6 +263,7 @@ export function createMockServer(options: MockServerOptions = {}): {
     throw new RangeError("maxConcurrentRequests must be a positive integer");
   }
   const timeoutSec = validateTimeout(options.requestTimeout ?? 10.0);
+  const timeoutMs = Math.max(1, Math.ceil(timeoutSec * 1000));
   if (!LOOPBACK_HOSTS.has(host.toLowerCase()) && !options.allowNonLoopback) {
     throw new RangeError(
       "Refusing to bind unauthenticated mock server to non-loopback host without allowNonLoopback: true",
@@ -285,7 +300,7 @@ export function createMockServer(options: MockServerOptions = {}): {
 
     if (method === "POST") {
       if (TOKEN_PATHS.has(path)) {
-        await readRequestBody(req, maxBodyBytes);
+        await readRequestBody(req, maxBodyBytes, timeoutMs);
         sendJson(res, 200, {
           access_token: "mock-access-token",
           token_type: "access_token",
@@ -295,7 +310,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/v1_0/apiuser") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const ref = headerStr(req, "X-Reference-Id") || "mock-user";
         if (state.sandboxUsers.has(ref)) {
           sendJson(res, 409, { message: "Duplicate X-Reference-Id" });
@@ -310,7 +325,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path.startsWith("/v1_0/apiuser/") && path.endsWith("/apikey")) {
-        await readRequestBody(req, maxBodyBytes);
+        await readRequestBody(req, maxBodyBytes, timeoutMs);
         const uid = decodeURIComponent(
           path.slice("/v1_0/apiuser/".length, -"/apikey".length),
         );
@@ -323,7 +338,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (MTN_WRITE_PATHS.has(path)) {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const ref = headerStr(req, "X-Reference-Id") || "mock-ref";
         if (state.transactions.has(ref)) {
           sendJson(res, 409, { message: "Duplicate X-Reference-Id" });
@@ -341,7 +356,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/collection/v1_0/bc-authorize") {
-        await readRequestBody(req, maxBodyBytes);
+        await readRequestBody(req, maxBodyBytes, timeoutMs);
         sendJson(res, 200, {
           auth_req_id: "mock-auth-req-id",
           interval: 5,
@@ -351,7 +366,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/merchant/v1/payments/" || path === "/standard/v1/disbursements/") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const rawTx = body["transaction"];
         const tx =
           rawTx && typeof rawTx === "object" && !Array.isArray(rawTx)
@@ -376,7 +391,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/v1/checkout/sessions") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const sid = `cos-${state.nextId()}`;
         const session = {
           id: sid,
@@ -393,7 +408,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/v1/payout") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const pid = `pt-${state.nextId()}`;
         const payout = {
           id: pid,
@@ -408,7 +423,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/mpesa/stkpush/v1/processrequest") {
-        await readJsonBody(req, maxBodyBytes);
+        await readJsonBody(req, maxBodyBytes, timeoutMs);
         const cid = `ws_CO_mock_${state.nextId()}`;
         state.putBounded(state.mpesaTransactions, cid, {
           CheckoutRequestID: cid,
@@ -430,7 +445,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/mpesa/stkpushquery/v1/query") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const cid = String(body["CheckoutRequestID"] ?? "");
         const tx = state.mpesaTransactions.get(cid);
         if (!tx) {
@@ -442,7 +457,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/mpesa/b2c/v3/paymentrequest") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const ocid = String(body["OriginatorConversationID"] ?? "mock-oc-1");
         sendJson(res, 200, {
           ConversationID: `AG_mock_${ocid}`,
@@ -454,7 +469,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/transaction/initialize" || path === "/transfer") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const ref = String(body["reference"] ?? "ps-mock-ref");
         const psStatus =
           state.defaultStatus === "SUCCESSFUL"
@@ -478,7 +493,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/v3/payments" || path === "/v3/transfers") {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const ref = String(body["tx_ref"] ?? body["reference"] ?? "flw-mock-ref");
         const flwStatus =
           state.defaultStatus === "SUCCESSFUL"
@@ -503,7 +518,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path.startsWith("/orange-money-webpay/") && path.endsWith("/webpayment")) {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const pt = `om-pay-${state.nextId()}`;
         const omStatus =
           state.defaultStatus === "SUCCESSFUL"
@@ -526,7 +541,7 @@ export function createMockServer(options: MockServerOptions = {}): {
         path.startsWith("/orange-money-webpay/") &&
         path.endsWith("/transactionstatus")
       ) {
-        const body = await readJsonBody(req, maxBodyBytes);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const pt = String(body["pay_token"] ?? "");
         const tx = state.orangeTransactions.get(pt);
         if (!tx) {
@@ -717,7 +732,7 @@ export function createMockServer(options: MockServerOptions = {}): {
       return;
     }
     inFlight += 1;
-    res.setTimeout(timeoutSec * 1000);
+    res.setTimeout(timeoutMs);
     void handleRequest(req, res)
       .catch((err: unknown) => {
         if (res.headersSent) return;
@@ -731,6 +746,8 @@ export function createMockServer(options: MockServerOptions = {}): {
         inFlight -= 1;
       });
   });
+  server.requestTimeout = timeoutMs;
+  server.headersTimeout = timeoutMs;
 
   return { server, state, host, port };
 }
