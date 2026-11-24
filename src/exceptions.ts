@@ -5,28 +5,28 @@ const UNSAFE_MSG_CHAR_RE = /[\x00-\x1f\x7f-\x9f\u2028\u2029]+/g;
 const MAX_ERROR_MESSAGE_LEN = 512;
 
 const SENSITIVE_BODY_KEYS: ReadonlySet<string> = new Set([
-  "access_token",
-  "refresh_token",
+  "accesstoken",
+  "refreshtoken",
   "token",
-  "id_token",
-  "api_key",
+  "idtoken",
   "apikey",
-  "client_secret",
-  "consumer_secret",
-  "subscription_key",
-  "ocp-apim-subscription-key",
+  "clientsecret",
+  "consumersecret",
+  "subscriptionkey",
+  "ocpapimsubscriptionkey",
   "secret",
-  "secret_key",
-  "webhook_secret",
-  "webhook_hash",
+  "secretkey",
+  "webhooksecret",
+  "webhookhash",
   "passkey",
   "password",
   "pin",
   "authorization",
-  "security_credential",
   "securitycredential",
-  "auth_req_id",
-  "merchant_key",
+  "authreqid",
+  "merchantkey",
+  "paytoken",
+  "notiftoken",
 ]);
 
 export interface AttemptedReference {
@@ -68,7 +68,8 @@ function redactValue(value: unknown, depth = 0): unknown {
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (SENSITIVE_BODY_KEYS.has(k.toLowerCase())) {
+      const normalizedKey = k.toLowerCase().replace(/[_-]/g, "");
+      if (SENSITIVE_BODY_KEYS.has(normalizedKey)) {
         out[k] = "<redacted>";
       } else {
         out[k] = redactValue(v, depth + 1);
