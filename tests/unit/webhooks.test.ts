@@ -17,6 +17,21 @@ describe("WebhookHandler", () => {
     WebhookHandler.verifyHmacSignature(payload, sig512, secret, {
       algorithm: "sha512",
     });
+    // Base64 HMAC support (e.g. Airtel Money x-signature, Issue #42)
+    const sig256B64 = createHmac("sha256", secret).update(payload).digest("base64");
+    WebhookHandler.verifyHmacSignature(payload, sig256B64, secret, {
+      encoding: "base64",
+    });
+    expect(() =>
+      WebhookHandler.verifyHmacSignature(payload, sig256B64.toLowerCase(), secret, {
+        encoding: "base64",
+      }),
+    ).toThrow(WebhookVerificationError);
+    expect(() =>
+      WebhookHandler.verifyHmacSignature(payload, sig256, secret, {
+        encoding: "base32",
+      }),
+    ).toThrow("Unsupported webhook signature encoding");
     expect(() =>
       WebhookHandler.verifyHmacSignature(payload, "deadbeef", secret),
     ).toThrow(WebhookVerificationError);

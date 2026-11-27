@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { WebhookVerificationError } from "../exceptions.js";
 
 const SUPPORTED_HMAC_ALGORITHMS = new Set(["sha256", "sha512"]);
+const SUPPORTED_HMAC_ENCODINGS = new Set(["hex", "base64"]);
 const MAX_SIGNATURE_PARTS = 32;
 const MAX_V1_SIGNATURES = 16;
 const MAX_SIGNATURE_HEADER_LENGTH = 4096;
@@ -46,7 +47,10 @@ export function verifyHmacSignature(
   payload: Uint8Array | Buffer | string,
   signature: string,
   secret: string,
-  options: { algorithm?: "sha256" | "sha512" | string } = {},
+  options: {
+    algorithm?: "sha256" | "sha512" | string;
+    encoding?: "hex" | "base64" | string;
+  } = {},
 ): void {
   const algorithm = options.algorithm ?? "sha256";
   if (typeof algorithm !== "string") {
@@ -60,6 +64,16 @@ export function verifyHmacSignature(
       `Unsupported webhook signature algorithm: ${algorithm}`,
     );
   }
+  const encoding = options.encoding ?? "hex";
+  if (
+    typeof encoding !== "string" ||
+    !SUPPORTED_HMAC_ENCODINGS.has(encoding.toLowerCase())
+  ) {
+    throw new WebhookVerificationError(
+      `Unsupported webhook signature encoding: ${String(encoding)}`,
+    );
+  }
+  const enc = encoding.toLowerCase() as "hex" | "base64";
   const rawBytes = toBytes(payload);
   if (typeof secret !== "string" || !secret) {
     throw new WebhookVerificationError("Webhook verification secret must not be empty");
@@ -72,11 +86,12 @@ export function verifyHmacSignature(
   if (provided.toLowerCase().startsWith(prefix)) {
     provided = provided.slice(prefix.length);
   }
-  const expectedHex = createHmac(algo, Buffer.from(secret, "utf8"))
+  const expected = createHmac(algo, Buffer.from(secret, "utf8"))
     .update(rawBytes)
-    .digest("hex");
+    .digest(enc);
+  const candidate = enc === "hex" ? provided.toLowerCase() : provided;
 
-  if (!safeEqualUtf8(expectedHex, provided.toLowerCase())) {
+  if (!safeEqualUtf8(expected, candidate)) {
     throw new WebhookVerificationError("Webhook signature verification failed");
   }
 }

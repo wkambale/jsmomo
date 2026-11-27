@@ -244,5 +244,56 @@ describe("Framework webhook adapters", () => {
         allowedNetworks: ["10.0.0.0/8"],
       }),
     ).rejects.toThrow("source IP address is required");
+
+    // Issue #42: Base64 encoding, pre-check telemetry in Express/Fastify, and Fastify returning reply
+    const b64Sig = createHmac("sha256", secret).update(bodyBuf).digest("base64");
+    verifyRawWebhookRequest({
+      rawBody: bodyBuf,
+      headers: { "x-signature": b64Sig },
+      signatureHeaderName: "x-signature",
+      secret,
+      encoding: "base64",
+    });
+
+    const preCheckEvents: WebhookTelemetryEvent[] = [];
+    const preCheckTelemetry = {
+      onRequest: () => {},
+      onWebhook: (e: WebhookTelemetryEvent) => preCheckEvents.push(e),
+    };
+    const expressPre = createExpressWebhookMiddleware({
+      secret,
+      httpErrorStatus: 400,
+      telemetry: preCheckTelemetry,
+      provider: "airtel_money",
+      encoding: "base64",
+    });
+    expressPre({ headers: { "x-signature": b64Sig } }, res, () => {});
+    expect(preCheckEvents).toHaveLength(1);
+    expect(preCheckEvents[0]?.verified).toBe(false);
+    expect(preCheckEvents[0]?.provider).toBe("airtel_money");
+
+    // Invalid signature emits failure telemetry exactly once (no double emission)
+    expressPre(
+      { headers: { "x-signature": "wrong" }, rawBody: bodyBuf },
+      res,
+      () => {},
+    );
+    expect(preCheckEvents).toHaveLength(2);
+
+    const fastifyPre = createFastifyWebhookPreHandler({
+      secret,
+      httpErrorStatus: 401,
+      telemetry: preCheckTelemetry,
+      provider: "airtel_money",
+      encoding: "base64",
+    });
+    const sentinelReply = { sent: true };
+    const fastifyRet = await fastifyPre(
+      { headers: { "content-length": "not-a-number" }, rawBody: bodyBuf },
+      { code: () => ({ send: () => sentinelReply }) },
+    );
+    expect(fastifyRet).toBe(sentinelReply);
+    expect(preCheckEvents).toHaveLength(3);
+    expect(preCheckEvents[2]?.verified).toBe(false);
   });
 });

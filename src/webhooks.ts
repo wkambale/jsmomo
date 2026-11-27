@@ -175,7 +175,10 @@ export class WebhookHandler {
     payload: Uint8Array | Buffer | string,
     signature: string,
     secret: string,
-    options: { algorithm?: "sha256" | "sha512" | string } = {},
+    options: {
+      algorithm?: "sha256" | "sha512" | string;
+      encoding?: "hex" | "base64" | string;
+    } = {},
   ): void {
     verifyHmacSignature(payload, signature, secret, options);
   }
