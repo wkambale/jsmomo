@@ -1,7 +1,11 @@
 import { inspect } from "node:util";
 
 import { TokenCache } from "../auth.js";
-import { JsMomoSDKError } from "../exceptions.js";
+import {
+  JsMomoSDKError,
+  JsMomoSDKServerError,
+  WebhookVerificationError,
+} from "../exceptions.js";
 import type { FetchLike } from "../http.js";
 import { DEFAULT_MAX_RESPONSE_BYTES, HttpClient, parseJsonObject } from "../http.js";
 import type { TelemetryHook } from "../telemetry.js";
@@ -53,6 +57,8 @@ const VALID_MPESA_COMMAND_IDS = new Set([
   "PromotionPayment",
 ]);
 const MAX_MPESA_ACCOUNT_REFERENCE_LEN = 12;
+const MAX_MPESA_TRANSACTION_DESC_LEN = 13;
+const VALID_MPESA_IDENTIFIER_TYPES = new Set(["1", "2", "4"]);
 
 function toMpesaIntAmount(amount: string): number {
   const validated = validateAmount(amount);
@@ -81,6 +87,21 @@ function validateAccountReference(accountReference: string): string {
   if (cleaned.length > MAX_MPESA_ACCOUNT_REFERENCE_LEN) {
     throw new RangeError(
       `accountReference must not exceed ${MAX_MPESA_ACCOUNT_REFERENCE_LEN} characters`,
+    );
+  }
+  return cleaned;
+}
+
+function validateTransactionDesc(transactionDesc: string): string {
+  if (typeof transactionDesc !== "string" || !transactionDesc.trim()) {
+    throw new RangeError("transactionDesc must be a non-empty string");
+  }
+  const cleaned = validateHeaderValue(transactionDesc.trim(), {
+    fieldName: "transactionDesc",
+  });
+  if (cleaned.length > MAX_MPESA_TRANSACTION_DESC_LEN) {
+    throw new RangeError(
+      `transactionDesc must not exceed ${MAX_MPESA_TRANSACTION_DESC_LEN} characters`,
     );
   }
   return cleaned;
@@ -278,6 +299,23 @@ export interface MpesaB2CResponse {
   readonly responseDescription: string;
 }
 
+export interface MpesaTransactionStatusParams {
+  transactionId?: string | null;
+  originalConversationId?: string | null;
+  identifierType?: "1" | "2" | "4";
+  remarks?: string;
+  occasion?: string;
+  callbackUrl?: string | null;
+  queueTimeoutUrl?: string | null;
+}
+
+export interface MpesaTransactionStatusResponse {
+  readonly conversationId: string;
+  readonly originatorConversationId: string;
+  readonly responseCode: string;
+  readonly responseDescription: string;
+}
+
 function strOrEmpty(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
@@ -411,6 +449,7 @@ export class MpesaClient {
   public async stkPush(params: MpesaStkPushParams): Promise<MpesaStkPushResponse> {
     const intAmount = toMpesaIntAmount(params.amount);
     const validatedRef = validateAccountReference(params.accountReference ?? "Payment");
+    const validatedDesc = validateTransactionDesc(params.transactionDesc ?? "Payment");
     const resolvedTxType = params.transactionType ?? this.config.transactionType;
     if (!VALID_MPESA_TRANSACTION_TYPES.has(resolvedTxType)) {
       throw new RangeError(
@@ -457,7 +496,7 @@ export class MpesaClient {
           PhoneNumber: msisdn,
           CallBackURL: cb,
           AccountReference: validatedRef,
-          TransactionDesc: params.transactionDesc ?? "Payment",
+          TransactionDesc: validatedDesc,
         },
         productName: "mpesa",
         tokenCache: this.cache,
@@ -485,20 +524,36 @@ export class MpesaClient {
       this.config.shortCode,
       this.config.passkey,
     );
-    const response = await this.http.request("POST", "/mpesa/stkpushquery/v1/query", {
-      headers: await this.authHeaders(cleanedId),
-      json: {
-        BusinessShortCode: this.config.shortCode,
-        Password: password,
-        Timestamp: timestamp,
-        CheckoutRequestID: cleanedId,
-      },
-      productName: "mpesa",
-      tokenCache: this.cache,
-      tokenRefresher: this.getToken,
-      idempotent: true,
-      referenceId: cleanedId,
-    });
+    let response;
+    try {
+      response = await this.http.request("POST", "/mpesa/stkpushquery/v1/query", {
+        headers: await this.authHeaders(cleanedId),
+        json: {
+          BusinessShortCode: this.config.shortCode,
+          Password: password,
+          Timestamp: timestamp,
+          CheckoutRequestID: cleanedId,
+        },
+        productName: "mpesa",
+        tokenCache: this.cache,
+        tokenRefresher: this.getToken,
+        idempotent: true,
+        referenceId: cleanedId,
+      });
+    } catch (err) {
+      if (
+        err instanceof JsMomoSDKServerError &&
+        err.errorCode === "500.001.1001" &&
+        /being\s+processed/i.test(err.reason ?? err.message)
+      ) {
+        return Object.freeze({
+          checkoutRequestId: cleanedId,
+          resultCode: null,
+          resultDesc: err.reason || "The transaction is being processed",
+        });
+      }
+      throw err;
+    }
     const raw = parseJsonObject(response, cleanedId);
     const rc = raw["ResultCode"];
     return Object.freeze({
@@ -581,9 +636,222 @@ export class MpesaClient {
     });
   }
 
+  /** Query the status of a Daraja transaction (e.g. B2C) asynchronously via ResultURL. */
+  public async transactionStatus(
+    params: MpesaTransactionStatusParams,
+  ): Promise<MpesaTransactionStatusResponse> {
+    if (!this.config.securityCredential) {
+      throw new RangeError(
+        "securityCredential is required for M-Pesa transaction status queries",
+      );
+    }
+    if (!this.config.initiatorName) {
+      throw new RangeError(
+        "initiatorName is required for M-Pesa transaction status queries",
+      );
+    }
+    const txId =
+      typeof params.transactionId === "string" && params.transactionId.trim()
+        ? validateHeaderValue(params.transactionId.trim(), {
+            fieldName: "transactionId",
+          })
+        : "";
+    const origConvId =
+      typeof params.originalConversationId === "string" &&
+      params.originalConversationId.trim()
+        ? validateHeaderValue(params.originalConversationId.trim(), {
+            fieldName: "originalConversationId",
+          })
+        : "";
+    if (!txId && !origConvId) {
+      throw new RangeError(
+        "transactionId or originalConversationId is required for M-Pesa transaction status queries",
+      );
+    }
+    const identifierType = params.identifierType ?? "4";
+    if (!VALID_MPESA_IDENTIFIER_TYPES.has(identifierType)) {
+      throw new RangeError("identifierType must be '1', '2', or '4'");
+    }
+    const allowLocalhost = this.config.environment === "sandbox";
+    if (params.callbackUrl !== undefined && params.callbackUrl !== null) {
+      validateCallbackUrl(params.callbackUrl, { allowLocalhost });
+    }
+    if (params.queueTimeoutUrl !== undefined && params.queueTimeoutUrl !== null) {
+      validateCallbackUrl(params.queueTimeoutUrl, { allowLocalhost });
+    }
+    const cb = params.callbackUrl ?? this.config.callbackUrl;
+    if (!cb) {
+      throw new RangeError("callbackUrl is required for M-Pesa transaction status");
+    }
+    const timeoutCb = params.queueTimeoutUrl ?? this.config.queueTimeoutUrl ?? cb;
+    const refId = txId || origConvId;
+    const payload: Record<string, unknown> = {
+      Initiator: this.config.initiatorName,
+      SecurityCredential: this.config.securityCredential,
+      CommandID: "TransactionStatusQuery",
+      TransactionID: txId,
+      PartyA: this.config.shortCode,
+      IdentifierType: identifierType,
+      ResultURL: cb,
+      QueueTimeOutURL: timeoutCb,
+      Remarks: params.remarks ?? "StatusQuery",
+      Occasion: params.occasion ?? "StatusQuery",
+    };
+    if (origConvId) {
+      payload["OriginalConversationID"] = origConvId;
+    }
+    const response = await this.http.request(
+      "POST",
+      "/mpesa/transactionstatus/v1/query",
+      {
+        headers: await this.authHeaders(refId),
+        json: payload,
+        productName: "mpesa",
+        tokenCache: this.cache,
+        tokenRefresher: this.getToken,
+        idempotent: true,
+        referenceId: refId,
+      },
+    );
+    const raw = parseJsonObject(response, refId);
+    return Object.freeze({
+      conversationId: strOrEmpty(raw["ConversationID"]),
+      originatorConversationId: strOrEmpty(raw["OriginatorConversationID"]),
+      responseCode: strOrEmpty(raw["ResponseCode"]),
+      responseDescription: strOrEmpty(raw["ResponseDescription"]),
+    });
+  }
+
   public close(): void {
     this.http.close();
   }
+}
+
+function readNamedValues(
+  items: unknown,
+  nameKey: string,
+  valueKey: string,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!Array.isArray(items)) return out;
+  for (const item of items) {
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const rec = item as Record<string, unknown>;
+      const k = rec[nameKey];
+      if (typeof k === "string" && k) {
+        out[k] = rec[valueKey];
+      }
+    }
+  }
+  return out;
+}
+
+/** Parse a Safaricom Daraja STK Push callback payload (`Body.stkCallback`) into a `PaymentResult`. */
+export function parseMpesaStkCallback(body: unknown): PaymentResult {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new WebhookVerificationError(
+      "M-Pesa STK callback body must be a JSON object",
+    );
+  }
+  const root = body as Record<string, unknown>;
+  const bodyObj = root["Body"];
+  const cbObj =
+    bodyObj && typeof bodyObj === "object" && !Array.isArray(bodyObj)
+      ? (bodyObj as Record<string, unknown>)["stkCallback"]
+      : null;
+  if (!cbObj || typeof cbObj !== "object" || Array.isArray(cbObj)) {
+    throw new WebhookVerificationError(
+      "M-Pesa STK callback is missing Body.stkCallback",
+    );
+  }
+  const cb = cbObj as Record<string, unknown>;
+  const checkoutRequestId = strOrEmpty(cb["CheckoutRequestID"]).trim();
+  const merchantRequestId = strOrEmpty(cb["MerchantRequestID"]).trim();
+  const rawCode = cb["ResultCode"];
+  if (
+    (!checkoutRequestId && !merchantRequestId) ||
+    (typeof rawCode !== "number" && typeof rawCode !== "string")
+  ) {
+    throw new WebhookVerificationError(
+      "M-Pesa STK callback is missing CheckoutRequestID or ResultCode",
+    );
+  }
+  const code = String(rawCode).trim();
+  const metaObj = cb["CallbackMetadata"];
+  const items =
+    metaObj && typeof metaObj === "object" && !Array.isArray(metaObj)
+      ? readNamedValues((metaObj as Record<string, unknown>)["Item"], "Name", "Value")
+      : {};
+  const amountVal = items["Amount"];
+  const receiptVal = items["MpesaReceiptNumber"];
+  return new PaymentResult({
+    provider: "mpesa",
+    referenceId: checkoutRequestId || merchantRequestId,
+    status: code === "0" ? NormalizedStatus.SUCCEEDED : NormalizedStatus.FAILED,
+    amount:
+      typeof amountVal === "number" || typeof amountVal === "string"
+        ? String(amountVal)
+        : null,
+    currency: "KES",
+    providerTransactionId:
+      typeof receiptVal === "string" && receiptVal.trim() ? receiptVal.trim() : null,
+    externalId: merchantRequestId || null,
+    reason: strOrEmpty(cb["ResultDesc"]) || null,
+    raw: root,
+  });
+}
+
+/** Parse a Safaricom Daraja B2C / Transaction Status callback payload (`Result`) into a `PaymentResult`. */
+export function parseMpesaB2CCallback(body: unknown): PaymentResult {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new WebhookVerificationError(
+      "M-Pesa B2C callback body must be a JSON object",
+    );
+  }
+  const root = body as Record<string, unknown>;
+  const resObj = root["Result"];
+  if (!resObj || typeof resObj !== "object" || Array.isArray(resObj)) {
+    throw new WebhookVerificationError("M-Pesa B2C callback is missing Result object");
+  }
+  const res = resObj as Record<string, unknown>;
+  const conversationId = strOrEmpty(res["ConversationID"]).trim();
+  const originatorConversationId = strOrEmpty(res["OriginatorConversationID"]).trim();
+  const rawCode = res["ResultCode"];
+  if (
+    (!conversationId && !originatorConversationId) ||
+    (typeof rawCode !== "number" && typeof rawCode !== "string")
+  ) {
+    throw new WebhookVerificationError(
+      "M-Pesa B2C callback is missing ConversationID or ResultCode",
+    );
+  }
+  const code = String(rawCode).trim();
+  const paramsObj = res["ResultParameters"];
+  const params =
+    paramsObj && typeof paramsObj === "object" && !Array.isArray(paramsObj)
+      ? readNamedValues(
+          (paramsObj as Record<string, unknown>)["ResultParameter"],
+          "Key",
+          "Value",
+        )
+      : {};
+  const amountVal = params["TransactionAmount"];
+  const receiptVal = params["TransactionReceipt"] ?? res["TransactionID"];
+  return new PaymentResult({
+    provider: "mpesa",
+    referenceId: conversationId || originatorConversationId,
+    status: code === "0" ? NormalizedStatus.SUCCEEDED : NormalizedStatus.FAILED,
+    amount:
+      typeof amountVal === "number" || typeof amountVal === "string"
+        ? String(amountVal)
+        : null,
+    currency: "KES",
+    providerTransactionId:
+      typeof receiptVal === "string" && receiptVal.trim() ? receiptVal.trim() : null,
+    externalId: originatorConversationId || null,
+    reason: strOrEmpty(res["ResultDesc"]) || null,
+    raw: root,
+  });
 }
 
 function mapMpesaQuery(
@@ -625,11 +893,15 @@ export class MpesaProvider implements PaymentProvider {
       0,
       MAX_MPESA_ACCOUNT_REFERENCE_LEN,
     );
+    const txDesc = (request.payerMessage.trim() || "Payment").slice(
+      0,
+      MAX_MPESA_TRANSACTION_DESC_LEN,
+    );
     const res = await this.client.stkPush({
       amount: request.amount,
       phoneNumber: request.payerMsisdn,
       accountReference: acctRef,
-      transactionDesc: request.payerMessage || "Payment",
+      transactionDesc: txDesc,
       callbackUrl: request.callbackUrl,
     });
     return new PaymentResult({

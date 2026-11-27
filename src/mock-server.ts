@@ -480,9 +480,16 @@ export function createMockServer(options: MockServerOptions = {}): {
         return;
       }
 
-      if (path === "/mpesa/b2c/v3/paymentrequest") {
+      if (
+        path === "/mpesa/b2c/v3/paymentrequest" ||
+        path === "/mpesa/transactionstatus/v1/query"
+      ) {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
-        const ocid = String(body["OriginatorConversationID"] ?? "mock-oc-1");
+        const ocid = String(
+          body["OriginatorConversationID"] ??
+            body["OriginalConversationID"] ??
+            "mock-oc-1",
+        );
         sendJson(res, 200, {
           ConversationID: `AG_mock_${ocid}`,
           OriginatorConversationID: ocid,
