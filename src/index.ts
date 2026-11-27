@@ -150,6 +150,7 @@ export {
   type PaystackInitializeParams,
   PaystackProvider,
   type PaystackTransferParams,
+  type PaystackTransferRecipientParams,
   type ProviderBalanceOptions,
   ProviderCapabilities,
   type ProviderCapabilitiesInit,

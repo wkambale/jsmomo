@@ -669,6 +669,27 @@ describe("Pan-African Providers Integration", () => {
             },
           });
         }
+        if (url.endsWith("/transferrecipient")) {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          return jsonResp(
+            {
+              status: true,
+              message: "Transfer recipient created successfully",
+              data: {
+                active: true,
+                recipient_code: "RCP_abc123",
+                type: body["type"],
+                name: body["name"],
+                currency: body["currency"],
+                details: {
+                  account_number: body["account_number"],
+                  bank_code: body["bank_code"],
+                },
+              },
+            },
+            201,
+          );
+        }
         if (url.endsWith("/transfer")) {
           const body = JSON.parse(String(init?.body));
           return jsonResp({
@@ -728,6 +749,40 @@ describe("Pan-African Providers Integration", () => {
         }),
       ),
     ).rejects.toThrow("RCP_");
+
+    // Issue #43: createTransferRecipient creates mobile_money / bank recipients returning RCP_*
+    const recipientRes = await client.createTransferRecipient({
+      type: "mobile_money",
+      name: "Ama Mensah",
+      accountNumber: "0551234567",
+      bankCode: "MTN",
+      currency: "GHS",
+      description: "Supplier payout",
+      metadata: { source: "sdk" },
+    });
+    const recipientData = recipientRes["data"] as Record<string, unknown>;
+    expect(recipientData["recipient_code"]).toBe("RCP_abc123");
+    expect(recipientData["type"]).toBe("mobile_money");
+    expect(recipientData["currency"]).toBe("GHS");
+    await expect(
+      client.createTransferRecipient({
+        type: " ",
+        name: "Ama",
+        accountNumber: "0551234567",
+        bankCode: "MTN",
+        currency: "GHS",
+      }),
+    ).rejects.toThrow("type");
+    await expect(
+      client.createTransferRecipient({
+        type: "nuban",
+        name: "Ama",
+        accountNumber: "0123456789",
+        bankCode: "044",
+        currency: "NGN",
+        description: "   ",
+      }),
+    ).rejects.toThrow("description");
 
     const dis = await ps.disburse(
       new DisbursementRequest({
