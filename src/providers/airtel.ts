@@ -18,7 +18,7 @@ const AIRTEL_CAPABILITIES = new ProviderCapabilities({
   supportsCollection: true,
   supportsDisbursement: true,
   supportsBalance: true,
-  supportsWebhookHmac: false,
+  supportsWebhookHmac: true,
   currencies: ["UGX", "KES", "TZS", "RWF", "ZMW", "MWK", "NGN", "XAF", "XOF"],
 });
 

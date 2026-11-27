@@ -51,6 +51,8 @@ export class AirtelDisbursement {
 
     const transaction: Record<string, unknown> = {
       amount: validatedAmount,
+      country: this.client.config.country,
+      currency: this.client.config.currency,
       id: ref,
     };
     if (params.transactionType !== undefined && params.transactionType !== null) {
@@ -96,9 +98,9 @@ export class AirtelDisbursement {
     return parseAirtelTransactionResponse(response, referenceId);
   }
 
-  /** Query the Airtel merchant wallet balance. */
+  /** Query the Airtel merchant wallet balance via Airtel's standard balance endpoint. */
   public async getBalance(): Promise<AirtelBalanceResponse> {
-    const response = await this.client.request("GET", "/merchant/v2/wallets/balance/");
+    const response = await this.client.request("GET", "/standard/v1/users/balance");
     if (response.body.byteLength > 0) {
       let parsed: unknown;
       try {

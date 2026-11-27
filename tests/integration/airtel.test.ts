@@ -1,4 +1,9 @@
-import { constants, generateKeyPairSync, privateDecrypt } from "node:crypto";
+import {
+  constants,
+  createHmac,
+  generateKeyPairSync,
+  privateDecrypt,
+} from "node:crypto";
 import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 
@@ -13,7 +18,10 @@ import {
   normaliseAirtelMsisdn,
   parseAirtelTokenPayload,
 } from "../../src/airtel/index.js";
-import { parseAirtelTransactionResponse } from "../../src/airtel/models.js";
+import {
+  parseAirtelBalanceResponse,
+  parseAirtelTransactionResponse,
+} from "../../src/airtel/models.js";
 import {
   AuthenticationError,
   BadRequestError,
@@ -22,6 +30,7 @@ import {
   JsMomoSDKServerError,
   ResourceNotFoundError,
   TransactionFailedError,
+  WebhookVerificationError,
 } from "../../src/exceptions.js";
 
 function jsonResp(body: unknown, status = 200): Response {
@@ -144,6 +153,7 @@ describe("Airtel Money SDK", () => {
         country: "UG",
         currency: "UGX",
         pin: "sandbox-pin",
+        webhookSecret: "airtel-wh-sec",
       },
       {
         fetch: async (url, init) => {
@@ -166,6 +176,21 @@ describe("Airtel Money SDK", () => {
               data: { transaction: { id: parsed.transaction.id, status: "TIP" } },
             });
           }
+          if (url.endsWith("/standard/v1/payments/refund")) {
+            const parsed = JSON.parse(String(init?.body));
+            expect(parsed.transaction.airtel_money_id).toBe("AM-REFUND-1");
+            return jsonResp({
+              status: {
+                code: "200",
+                message: "SUCCESS",
+                result_code: "00",
+                success: true,
+              },
+              data: {
+                transaction: { airtel_money_id: "AM-REFUND-1", status: "TS" },
+              },
+            });
+          }
           if (url.includes("/standard/v1/payments/")) {
             return jsonResp({
               status: { code: "200", message: "OK", result_code: "00", success: true },
@@ -173,6 +198,9 @@ describe("Airtel Money SDK", () => {
             });
           }
           if (url.endsWith("/standard/v1/disbursements/")) {
+            const parsed = JSON.parse(String(init?.body));
+            expect(parsed.transaction.country).toBe("UG");
+            expect(parsed.transaction.currency).toBe("UGX");
             return jsonResp({
               status: { code: "200", message: "OK", success: true },
               data: { transaction: { id: "DISB-1", status: "TIP" } },
@@ -184,16 +212,13 @@ describe("Airtel Money SDK", () => {
               data: { transaction: { id: "DISB-1", status: "TIP" } },
             });
           }
-          if (url.endsWith("/merchant/v2/wallets/balance/")) {
+          if (url.endsWith("/standard/v1/users/balance")) {
             return jsonResp({
               status: { code: "200", message: "OK", success: true },
               data: {
-                wallet: {
-                  msisdn: "750000000",
-                  balance: "45000",
-                  currency: "UGX",
-                  status: "ACTIVE",
-                },
+                balance: "45000",
+                currency: "UGX",
+                account_status: "Active",
               },
             });
           }
@@ -215,6 +240,10 @@ describe("Airtel Money SDK", () => {
     expect(colStatus.isPending()).toBe(false);
     expect(colStatus.isFailed()).toBe(false);
 
+    const refundRes = await client.collection.refund("AM-REFUND-1");
+    expect(refundRes.isSuccessful()).toBe(true);
+    expect(refundRes.data.transaction.airtelMoneyId).toBe("AM-REFUND-1");
+
     const disbRef = await client.disbursement.transfer({
       amount: "5000",
       payeeMsisdn: "+256752123456",
@@ -227,7 +256,48 @@ describe("Airtel Money SDK", () => {
     expect(disbStatus.isPending()).toBe(true);
 
     const bal = await client.disbursement.getBalance();
+    expect(bal.data.balance).toBe("45000");
+    expect(bal.data.accountStatus).toBe("Active");
     expect(bal.data.wallet.balance).toBe("45000");
+
+    // Fallback nested data.wallet balance shape still parses cleanly
+    const nestedWalletBal = parseAirtelBalanceResponse({
+      status: 200,
+      headers: new Headers(),
+      body: new Uint8Array(),
+      text: () => "",
+      json: () => ({
+        status: { code: "200", message: "OK", success: true },
+        data: {
+          wallet: {
+            msisdn: "750000000",
+            balance: "12000",
+            currency: "UGX",
+            status: "ACTIVE",
+          },
+        },
+      }),
+    });
+    expect(nestedWalletBal.data.balance).toBe("12000");
+    expect(nestedWalletBal.data.wallet.msisdn).toBe("750000000");
+
+    // Airtel Base64 HMAC-SHA256 webhook verification (Issue #33)
+    const rawWebhook = Buffer.from(
+      '{"transaction":{"id":"ORDER-1","status_code":"TS"}}',
+      "utf8",
+    );
+    const validSig = createHmac("sha256", "airtel-wh-sec")
+      .update(rawWebhook)
+      .digest("base64");
+    const hexSig = createHmac("sha256", "airtel-wh-sec")
+      .update(rawWebhook)
+      .digest("hex");
+    client.verifyWebhook(rawWebhook, validSig);
+    expect(() => client.verifyWebhook(rawWebhook, hexSig)).toThrow(
+      WebhookVerificationError,
+    );
+    expect(inspect(client.config)).not.toContain("airtel-wh-sec");
+    expect(client.config.toJSON()["webhookSecret"]).toBe("<redacted>");
     client.close();
   });
 

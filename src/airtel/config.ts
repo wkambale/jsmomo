@@ -75,6 +75,7 @@ export interface AirtelConfigOptions {
   country: string;
   currency: string;
   pin?: string | null;
+  webhookSecret?: string | null;
   environment?: "sandbox" | "production" | string;
   baseUrl?: string | null;
   timeout?: number;
@@ -90,6 +91,7 @@ export class AirtelConfig {
   public readonly country: string;
   public readonly currency: string;
   public readonly pin: string | null;
+  public readonly webhookSecret: string | null;
   public readonly environment: string;
   public readonly baseUrl: string;
   public readonly timeout: number;
@@ -127,6 +129,16 @@ export class AirtelConfig {
       pin = options.pin;
     }
 
+    let webhookSecret: string | null = null;
+    if (options.webhookSecret !== undefined && options.webhookSecret !== null) {
+      if (typeof options.webhookSecret !== "string" || !options.webhookSecret.trim()) {
+        throw new RangeError("webhookSecret must not be blank");
+      }
+      webhookSecret = validateHeaderValue(options.webhookSecret, {
+        fieldName: "webhookSecret",
+      });
+    }
+
     const timeout = validateTimeout(options.timeout ?? 30.0);
     const maxRetries = validateMaxRetries(options.maxRetries ?? 0);
     const retryBackoff = validateRetryBackoff(options.retryBackoff ?? 0.5);
@@ -144,6 +156,7 @@ export class AirtelConfig {
     this.country = country;
     this.currency = currency;
     this.pin = pin;
+    this.webhookSecret = webhookSecret;
     this.environment = environment;
     this.baseUrl = baseUrl;
     this.timeout = timeout;
@@ -154,7 +167,7 @@ export class AirtelConfig {
   }
 
   public toString(): string {
-    return `AirtelConfig(clientId=${JSON.stringify(this.clientId)}, clientSecret=<redacted>, country=${JSON.stringify(this.country)}, currency=${JSON.stringify(this.currency)}, pin=<redacted>, environment=${JSON.stringify(this.environment)}, baseUrl=${JSON.stringify(this.baseUrl)}, timeout=${this.timeout})`;
+    return `AirtelConfig(clientId=${JSON.stringify(this.clientId)}, clientSecret=<redacted>, country=${JSON.stringify(this.country)}, currency=${JSON.stringify(this.currency)}, pin=<redacted>, webhookSecret=<redacted>, environment=${JSON.stringify(this.environment)}, baseUrl=${JSON.stringify(this.baseUrl)}, timeout=${this.timeout})`;
   }
 
   public toJSON(): Record<string, unknown> {
@@ -164,6 +177,7 @@ export class AirtelConfig {
       country: this.country,
       currency: this.currency,
       pin: "<redacted>",
+      webhookSecret: this.webhookSecret ? "<redacted>" : null,
       environment: this.environment,
       baseUrl: this.baseUrl,
       timeout: this.timeout,

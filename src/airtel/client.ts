@@ -18,6 +18,7 @@ import {
   readBoundedResponse,
   sanitizeTelemetryPath,
 } from "../http.js";
+import { verifyHmacSignature } from "../providers/_signatures.js";
 import type { TelemetryHook } from "../telemetry.js";
 import { validateHeaderValue, validateRequestPath } from "../utils.js";
 import { AirtelAuth } from "./auth.js";
@@ -477,6 +478,14 @@ export class AirtelClient {
 
     raiseForAirtelStatus(response, { referenceId: effectiveRef });
     return response;
+  }
+
+  /** Verify an inbound Airtel Money callback `x-signature` (Base64 HMAC-SHA256). */
+  public verifyWebhook(payload: Uint8Array | Buffer | string, signature: string): void {
+    verifyHmacSignature(payload, signature, this.config.webhookSecret ?? "", {
+      algorithm: "sha256",
+      encoding: "base64",
+    });
   }
 
   public close(): void {
