@@ -8,9 +8,9 @@
   [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 </div>
 
-JS MoMo SDK (`js-momo-sdk` 1.2.0) is a zero-runtime-dependency, strictly typed TypeScript and JavaScript client library for MTN Mobile Money (MoMo), Airtel Money, Wave, Safaricom M-Pesa (Daraja), Paystack, Flutterwave, and Orange Money behind a unified `PaymentRouter`. It ships dual ESM and CommonJS bundles with full `.d.ts` declarations, automatic OAuth2 token caching, strict input validation, structured error diagnostics, and verified webhook security.
+JS MoMo SDK (`js-momo-sdk` 1.2.1) is a zero-runtime-dependency, strictly typed TypeScript and JavaScript client library for MTN Mobile Money (MoMo), Airtel Money, Wave, Safaricom M-Pesa (Daraja), Paystack, Flutterwave, and Orange Money behind a unified `PaymentRouter`. It ships dual ESM and CommonJS bundles with full `.d.ts` declarations, automatic OAuth2 token caching, strict input validation, structured error diagnostics, and verified webhook security.
 
-- **npm package:** [js-momo-sdk](https://www.npmjs.com/package/js-momo-sdk) (`1.2.0`, inspectable via `VERSION`)
+- **npm package:** [js-momo-sdk](https://www.npmjs.com/package/js-momo-sdk) (`1.2.1`, inspectable via `VERSION`)
 - **Runtime support:** Node.js 18+ (zero runtime dependencies, backed by native `fetch` and `node:crypto`)
 - **Documentation:** [https://wkambale.github.io/jsmomo/](https://wkambale.github.io/jsmomo/)
 - **Repository:** [https://github.com/wkambale/jsmomo](https://github.com/wkambale/jsmomo)

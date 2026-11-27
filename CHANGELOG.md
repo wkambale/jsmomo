@@ -4,6 +4,37 @@ All notable changes to **JS MoMo SDK** (`js-momo-sdk`) are documented in this fi
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-11-27
+
+### Security
+- **Production HTTPS enforcement across Paystack, Flutterwave, and Wave (#31, #63):** Auto-infer `environment: "production"` from live keys (`sk_live_*`, `FLWSECK-*`, `wave_*_prod_*`), reject `sandbox` paired with live keys, and enforce `allowLocalhost: environment === "sandbox"` across configs, `HttpClient`, and per-call callback/redirect URLs.
+- **M-Pesa encrypted `SecurityCredential` guard (#36, #67):** Reject plaintext `securityCredential` values in production (requiring valid Base64 RSA ciphertext) and export `encryptMpesaSecurityCredential()`.
+- **HTTP retry safety & Paystack transfer protection (#47, #73):** Remove HTTP `500` from `RETRYABLE_STATUS_CODES`, restrict `SAFE_RETRY_METHODS` to `GET`/`HEAD`/`OPTIONS`, and disable auto-retry (`idempotent: false`) on Paystack `POST /transfer` and `POST /transaction/initialize`.
+- **SSRF IPv4 blocklist expansion (#44, #57):** Block RFC 3068 `192.88.99.0/24` and RFC 5737 `198.51.100.0/24`, `203.0.113.0/24` in `isDisallowedIpv4()`.
+- **Orange Money notification token verification (#35, #68):** Persist `notif_token` in `OrangePaymentContextStore`, add constant-time `OrangeMoneyClient.verifyNotification()`, and map `txnid` to `PaymentResult.providerTransactionId`.
+- **Wave outbound signing & 30s webhook skew (#56, #74):** Add redacted `signingSecret` and outbound `Wave-Signature` on `POST /v1/payout`, and align `WaveClient.verifyWebhook()` default `maxFutureSkewSeconds` to `30`s.
+- **CI/CD & supply-chain hardening (#49, #75):** Pin all GitHub Actions across `ci.yml`, `docs.yml`, and `publish.yml` to immutable 40-char commit SHAs, add `.github/dependabot.yml`, verify `origin/main` ancestry and `SHA256SUMS.txt` before publishing, and separate OIDC npm publishing from GitHub Release asset uploads.
+
+### Added
+- **MTN MoMo consented userinfo (#32, #64):** Add `Collection.getUserInfoWithConsent(oauth2AccessToken)` (`GET /collection/oauth2/v1_0/userinfo`).
+- **Airtel Money refunds & webhook HMAC (#33, #65):** Add `AirtelCollection.refund()` (`POST /standard/v1/payments/refund`) and Base64 HMAC-SHA256 `AirtelClient.verifyWebhook()` (`AIRTEL_CAPABILITIES.supportsWebhookHmac = true`).
+- **M-Pesa transaction status & callback parsers (#34, #66):** Add `MpesaClient.transactionStatus()` (`POST /mpesa/transactionstatus/v1/query`), `parseMpesaStkCallback()`, and `parseMpesaB2CCallback()`.
+- **Paystack transfer recipients (#43, #71):** Add `PaystackClient.createTransferRecipient()` (`POST /transferrecipient`) and mock-server route.
+- **Wave checkout & payout lifecycle endpoints (#56, #74):** Add `refundCheckoutSession()`, `expireCheckoutSession()`, `searchCheckoutSessions()`, `reversePayout()`, and `searchPayouts()`.
+- **Base64 HMAC webhook encoding (#42, #60):** Add `encoding?: "hex" | "base64"` to `verifyHmacSignature` and framework webhook helpers.
+
+### Fixed
+- **MTN MoMo Open API paths (#32, #64):** Align `createOAuth2Token` (`/collection/oauth2/token/`), `getWithdrawStatus` (`/collection/v1_0/requesttowithdraw/{ref}`), `getDepositStatus` (`/disbursement/v1_0/deposit/{ref}`), and `getRefundStatus` (`/disbursement/v1_0/refund/{ref}`).
+- **Airtel Money balance & disbursement parity (#33, #65):** Align balance endpoint to `GET /standard/v1/users/balance` with flat `data.{balance, currency, account_status}` parsing (keeping `data.wallet` fallback) and include `country`/`currency` in disbursement `transaction` payloads.
+- **M-Pesa STK query pending handling & description cap (#34, #66):** Treat Daraja `500.001.1001` as `PENDING` in `stkQuery()` and enforce/truncate the 13-character `TransactionDesc` limit.
+- **Zero-decimal currency validation (#37, #62):** Pass `{ currency }` into `validateAmount()` in `PaymentRequest`, `DisbursementRequest`, `WaveClient`, and `FlutterwaveClient`.
+- **Flutterwave mobile money transfer fields (#38, #69):** Support optional `beneficiaryName` (`beneficiary_name`), `debitCurrency` (`debit_currency`), and `meta` on `FlutterwaveClient.createTransfer()`.
+- **Wave checkout payer binding & fallback URL (#39, #70):** Send `restrict_payer_mobile` from `WaveProvider.collect()`, fall back `errorUrl` to `request.callbackUrl` when `config.errorUrl` is unset, and include `GMD` in `WAVE_CAPABILITIES`.
+- **Carrier-to-capability currency parity (#40, #72):** Add `RWF` and `NGN` to `MTN_CAPABILITIES`, and `CDF`, `GNF`, `LRD`, `MGA`, `SLE`, `BWP`, `USD` to `ORANGE_CAPABILITIES`.
+- **Airtel `waitForSettlement` compatibility (#41, #61):** Widen `PollableResult.status` to `unknown` and expose `referenceId`/`reason` getters on `AirtelTransactionResponse`.
+- **Webhook telemetry & Fastify preHandler return (#42, #60):** Emit telemetry on pre-check failures without duplicate emission and return `reply.code(...).send(...)` in `createFastifyWebhookPreHandler`.
+- **Upfront HTTP method/header validation & CLI stdin guard (#45, #46, #58, #59):** Reject invalid HTTP methods/headers before dispatch without retrying, and reject conflicting `'-'` stdin arguments in CLI commands.
+
 ## [1.2.0] - 2026-11-24
 
 ### Security
