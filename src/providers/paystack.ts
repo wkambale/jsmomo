@@ -389,7 +389,7 @@ export class PaystackClient {
     const response = await this.http.request("POST", "/transaction/initialize", {
       headers: this.headers(),
       json: payload,
-      idempotent: true,
+      idempotent: false,
       referenceId: ref,
     });
     return parseJsonObject(response, ref);
@@ -476,7 +476,7 @@ export class PaystackClient {
         reference: ref,
         reason: params.reason ?? "Payout",
       },
-      idempotent: true,
+      idempotent: false,
       referenceId: ref,
     });
     return parseJsonObject(response, ref);
