@@ -226,6 +226,17 @@ export class AirtelTransactionResponse {
     return stripped || null;
   }
 
+  public get referenceId(): string | null {
+    return this.data.transaction.id ?? this.data.transaction.reference ?? null;
+  }
+
+  public get reason(): string | null {
+    const txMsg = this.data.transaction.message?.trim();
+    if (txMsg) return txMsg;
+    const statusMsg = this.status.message.trim();
+    return statusMsg || null;
+  }
+
   public isSuccessful(): boolean {
     if (this.status.success === false) return false;
     const txStatus = this.normalizedTxStatus();
