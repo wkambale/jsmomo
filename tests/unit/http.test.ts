@@ -323,6 +323,42 @@ describe("HttpClient and error extraction", () => {
       }),
     ).rejects.toThrow(JsMomoSDKServerError);
     expect(postCalls).toBe(1);
+
+    // 4. Issue #47: HTTP 500 is NOT retried even on GET, and PUT/DELETE are NOT retried by default
+    let calls500 = 0;
+    const noRetry500 = new HttpClient({
+      baseUrl: "https://api.example.com",
+      maxRetries: 2,
+      retryBackoff: 0.01,
+      sleepFn: async () => {},
+      fetch: async () => {
+        calls500 += 1;
+        return new Response("internal error", { status: 500 });
+      },
+    });
+    await expect(
+      noRetry500.request("GET", "/v1/status", { headers: {} }),
+    ).rejects.toThrow(JsMomoSDKServerError);
+    expect(calls500).toBe(1);
+
+    let unsafeMethodCalls = 0;
+    const noRetryUnsafe = new HttpClient({
+      baseUrl: "https://api.example.com",
+      maxRetries: 2,
+      retryBackoff: 0.01,
+      sleepFn: async () => {},
+      fetch: async () => {
+        unsafeMethodCalls += 1;
+        return new Response("busy", { status: 503 });
+      },
+    });
+    await expect(
+      noRetryUnsafe.request("PUT", "/v1/resource", { headers: {} }),
+    ).rejects.toThrow(JsMomoSDKServerError);
+    await expect(
+      noRetryUnsafe.request("DELETE", "/v1/resource", { headers: {} }),
+    ).rejects.toThrow(JsMomoSDKServerError);
+    expect(unsafeMethodCalls).toBe(2);
   });
 
   it("handles CAS 401 refresh, timeout/network subtypes, and parseJsonObject with referenceId", async () => {

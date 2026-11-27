@@ -805,6 +805,36 @@ describe("Pan-African Providers Integration", () => {
     const sig = createHmac("sha512", "sk_test_12345").update(raw).digest("hex");
     client.verifyWebhook(raw, sig);
     expect(() => client.verifyWebhook(raw, "bad")).toThrow(WebhookVerificationError);
+
+    // Issue #47: Paystack transfers & transaction init do NOT auto-retry on 503/500 and preserve referenceId
+    let psRetryCalls = 0;
+    const psNoRetry = new PaystackClient(
+      { secretKey: "sk_test_12345", maxRetries: 2, retryBackoff: 0.01 },
+      {
+        fetch: async () => {
+          psRetryCalls += 1;
+          return new Response("upstream busy", { status: 503 });
+        },
+      },
+    );
+    await expect(
+      psNoRetry.initiateTransfer({
+        amount: "500",
+        currency: "NGN",
+        recipient: "RCP_abc123",
+        reference: "ps-no-retry-tr",
+      }),
+    ).rejects.toMatchObject({ referenceId: "ps-no-retry-tr", statusCode: 503 });
+    await expect(
+      psNoRetry.initializeTransaction({
+        email: "a@b.com",
+        amount: "500",
+        currency: "NGN",
+        reference: "ps-no-retry-tx",
+      }),
+    ).rejects.toMatchObject({ referenceId: "ps-no-retry-tx", statusCode: 503 });
+    expect(psRetryCalls).toBe(2);
+    psNoRetry.close();
     ps.close();
   });
 

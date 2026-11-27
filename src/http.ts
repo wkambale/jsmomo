@@ -21,15 +21,9 @@ import {
 
 export const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576; // 1 MiB
 export const RETRYABLE_STATUS_CODES: ReadonlySet<number> = new Set([
-  429, 500, 502, 503, 504,
+  429, 502, 503, 504,
 ]);
-const SAFE_RETRY_METHODS: ReadonlySet<string> = new Set([
-  "GET",
-  "HEAD",
-  "OPTIONS",
-  "PUT",
-  "DELETE",
-]);
+const SAFE_RETRY_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 const PII_PATH_RE = /(\/accountholder\/[^/]+\/)[^/]+/gi;
 const APIUSER_PATH_RE = /(\/v1_0\/apiuser\/)[^/]+/gi;
 
