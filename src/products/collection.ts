@@ -165,7 +165,7 @@ export class Collection extends BaseProduct {
     validateReferenceId(referenceId);
     const response = await this.http.request(
       "GET",
-      `/collection/v2_0/requesttowithdraw/${referenceId}`,
+      `/collection/v1_0/requesttowithdraw/${referenceId}`,
       {
         headers: await this.buildHeaders(),
         productName: this.productName,
@@ -178,7 +178,10 @@ export class Collection extends BaseProduct {
     return parseTransactionResultResponse(response, referenceId);
   }
 
-  /** Get basic user info using a v2 reference ID. */
+  /**
+   * Get basic user info using a v2 reference ID.
+   * @deprecated Use `getBasicUserInfo()` or `getUserInfoWithConsent()` for official MTN MoMo Open API endpoints.
+   */
   public async getBasicUserInfoByReference(
     referenceId: string,
   ): Promise<BasicUserInfo> {
@@ -196,6 +199,34 @@ export class Collection extends BaseProduct {
       },
     );
     return parseBasicUserInfoResponse(response, referenceId);
+  }
+
+  /**
+   * Fetch consented user profile details using a CIBA user OAuth2 access token
+   * obtained via `bcAuthorize()` + `createOAuth2Token()`.
+   */
+  public async getUserInfoWithConsent(
+    oauth2AccessToken: string,
+  ): Promise<BasicUserInfo> {
+    if (typeof oauth2AccessToken !== "string" || !oauth2AccessToken.trim()) {
+      throw new RangeError("oauth2AccessToken must be a non-empty string");
+    }
+    validateHeaderValue(oauth2AccessToken, {
+      fieldName: "oauth2AccessToken",
+      allowWhitespace: false,
+    });
+    const response = await this.http.request(
+      "GET",
+      "/collection/oauth2/v1_0/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${oauth2AccessToken}`,
+          "Ocp-Apim-Subscription-Key": this.productConfig.subscriptionKey,
+          "X-Target-Environment": this.config.environment,
+        },
+      },
+    );
+    return parseBasicUserInfoResponse(response);
   }
 
   /** Initiate a CIBA backchannel authorization request. */
@@ -277,7 +308,7 @@ export class Collection extends BaseProduct {
       this.productConfig.apiUser,
       this.productConfig.apiKey,
     );
-    const response = await this.http.request("POST", "/collection/v1_0/oauth2/token/", {
+    const response = await this.http.request("POST", "/collection/oauth2/token/", {
       headers: {
         Authorization: authHeader,
         "Ocp-Apim-Subscription-Key": this.productConfig.subscriptionKey,
