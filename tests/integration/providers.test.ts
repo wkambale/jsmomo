@@ -296,6 +296,34 @@ describe("Pan-African Providers Integration", () => {
     expect(() =>
       client.verifyWebhook(rawBody, `t=${now},v1=deadbeef`, { now }),
     ).toThrow(WebhookVerificationError);
+
+    // Zero-decimal currency validation enforced across models, WaveClient, and FlutterwaveClient (Issue #37)
+    expect(
+      () =>
+        new PaymentRequest({
+          amount: "100.50",
+          currency: "UGX",
+          payerMsisdn: "+256771234567",
+        }),
+    ).toThrow("zero-decimal");
+    expect(
+      () =>
+        new DisbursementRequest({
+          amount: "500.25",
+          currency: "XOF",
+          payeeMsisdn: "+221771234567",
+        }),
+    ).toThrow("zero-decimal");
+    await expect(
+      client.createCheckoutSession({ amount: "100.50", currency: "XOF" }),
+    ).rejects.toThrow("zero-decimal");
+    await expect(
+      client.createPayout({
+        amount: "200.50",
+        currency: "UGX",
+        mobile: "+256771234567",
+      }),
+    ).rejects.toThrow("zero-decimal");
     wave.close();
   });
 
@@ -566,6 +594,20 @@ describe("Pan-African Providers Integration", () => {
 
     client.verifyWebhookHash("my-flw-hash");
     expect(() => client.verifyWebhookHash("wrong")).toThrow(WebhookVerificationError);
+    await expect(
+      client.createPayment({
+        amount: "100.50",
+        currency: "UGX",
+        phoneNumber: "+256771234567",
+      }),
+    ).rejects.toThrow("zero-decimal");
+    await expect(
+      client.createTransfer({
+        amount: "100.50",
+        currency: "RWF",
+        accountNumber: "+250781234567",
+      }),
+    ).rejects.toThrow("zero-decimal");
     flw.close();
   });
 
@@ -912,37 +954,33 @@ describe("Pan-African Providers Integration", () => {
           lang: "english",
         }),
     ).toThrow("2-letter");
-    const omNoPayToken = new OrangeMoneyProvider(
-      new OrangeMoneyClient(
-        {
-          clientId: "cid",
-          clientSecret: "csec",
-          merchantKey: "mkey",
-          returnUrl: "https://a.example.com/r",
-          cancelUrl: "https://a.example.com/c",
-          notifUrl: "https://a.example.com/n",
+    const omNoPayClient = new OrangeMoneyClient(
+      {
+        clientId: "cid",
+        clientSecret: "csec",
+        merchantKey: "mkey",
+        returnUrl: "https://a.example.com/r",
+        cancelUrl: "https://a.example.com/c",
+        notifUrl: "https://a.example.com/n",
+      },
+      {
+        fetch: async (url) => {
+          if (url.endsWith("/oauth/v3/token")) {
+            return jsonResp({ access_token: "tok", expires_in: "120" });
+          }
+          if (url.endsWith("/transactionstatus")) {
+            return jsonResp({ status: "EXPIRED" });
+          }
+          return jsonResp({ message: "Merchant inactive" });
         },
-        {
-          fetch: async (url) => {
-            if (url.endsWith("/oauth/v3/token")) {
-              return jsonResp({ access_token: "tok", expires_in: "120" });
-            }
-            if (url.endsWith("/transactionstatus")) {
-              return jsonResp({ status: "EXPIRED" });
-            }
-            return jsonResp({ message: "Merchant inactive" });
-          },
-        },
-      ),
+      },
     );
+    const omNoPayToken = new OrangeMoneyProvider(omNoPayClient);
     await expect(
-      omNoPayToken.collect(
-        new PaymentRequest({
-          amount: "10.5",
-          currency: "XOF",
-          payerMsisdn: "+221771234567",
-        }),
-      ),
+      omNoPayClient.createWebPayment({
+        amount: "10.5",
+        currency: "OUV",
+      }),
     ).rejects.toThrow("whole-integer");
     await expect(
       omNoPayToken.collect(

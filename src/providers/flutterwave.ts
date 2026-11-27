@@ -275,8 +275,8 @@ export class FlutterwaveClient {
   public async createPayment(
     params: FlutterwavePaymentParams,
   ): Promise<Record<string, unknown>> {
-    const amount = validateAmount(params.amount);
     const currency = validateCurrency(params.currency);
+    const amount = validateAmount(params.amount, { currency });
     const resolvedEmail = params.email ?? this.config.defaultCustomerEmail;
     if (!resolvedEmail) {
       throw new RangeError(
@@ -320,8 +320,8 @@ export class FlutterwaveClient {
   public async createTransfer(
     params: FlutterwaveTransferParams,
   ): Promise<Record<string, unknown>> {
-    const amount = validateAmount(params.amount);
     const currency = validateCurrency(params.currency);
+    const amount = validateAmount(params.amount, { currency });
     const resolvedBank = params.accountBank ?? this.config.defaultAccountBank;
     if (!resolvedBank || !resolvedBank.trim()) {
       throw new RangeError(
