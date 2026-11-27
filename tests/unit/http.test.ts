@@ -455,4 +455,56 @@ describe("HttpClient and error extraction", () => {
     });
     refresh503.close();
   });
+
+  it("validates HTTP method and headers upfront without retrying local errors (Issue #45)", async () => {
+    let fetchCalls = 0;
+    const client = new HttpClient({
+      baseUrl: "https://api.example.com",
+      providerName: "MTN MoMo",
+      maxRetries: 3,
+      retryBackoff: 0.001,
+      sleepFn: async () => {},
+      fetch: async () => {
+        fetchCalls += 1;
+        return jsonResp({ ok: true });
+      },
+    });
+
+    await expect(
+      client.request("BAD METHOD", "/v1/test", {
+        headers: {},
+        idempotent: true,
+        referenceId: "ref-bad-method",
+      }),
+    ).rejects.toMatchObject({
+      name: JsMomoSDKError.name,
+      referenceId: "ref-bad-method",
+      provider: "MTN MoMo",
+    });
+
+    await expect(
+      client.request("GET", "/v1/test", {
+        headers: { "Bad Header": "value" },
+        idempotent: true,
+        referenceId: "ref-bad-hdr-name",
+      }),
+    ).rejects.toMatchObject({
+      name: JsMomoSDKError.name,
+      referenceId: "ref-bad-hdr-name",
+    });
+
+    await expect(
+      client.request("GET", "/v1/test", {
+        headers: { "X-Custom": "val\r\nInjected: 1" },
+        idempotent: true,
+        referenceId: "ref-crlf",
+      }),
+    ).rejects.toMatchObject({
+      name: JsMomoSDKError.name,
+      referenceId: "ref-crlf",
+    });
+
+    expect(fetchCalls).toBe(0);
+    client.close();
+  });
 });
