@@ -121,6 +121,7 @@ export interface VerifyRawWebhookOptions {
     timestamp: number,
   ) => boolean;
   algorithm?: "sha256" | "sha512" | string;
+  encoding?: "hex" | "base64" | string;
   remoteIp?: string | null;
   allowedNetworks?: readonly string[] | null;
   maxBodyBytes?: number;
@@ -168,6 +169,7 @@ export function verifyRawWebhookRequest(options: VerifyRawWebhookOptions): void 
     } else {
       WebhookHandler.verifyHmacSignature(options.rawBody, sigValue, options.secret, {
         algorithm: options.algorithm ?? "sha256",
+        encoding: options.encoding ?? "hex",
       });
     }
   } catch (err) {
@@ -226,6 +228,7 @@ export interface FrameworkWebhookVerifierOptions {
     timestamp: number,
   ) => boolean;
   algorithm?: "sha256" | "sha512" | string;
+  encoding?: "hex" | "base64" | string;
   allowedNetworks?: readonly string[] | null;
   maxBodyBytes?: number;
   httpErrorStatus?: number | null;
@@ -304,6 +307,7 @@ export async function verifyWebWebhookRequest(
       timestampSeparator: options.timestampSeparator,
       replayCheck: options.replayCheck,
       algorithm: options.algorithm,
+      encoding: options.encoding,
       maxBodyBytes: limit,
       now: options.now,
     });
@@ -342,8 +346,10 @@ export function createExpressWebhookMiddleware(
   const limit = validateMaxBodyBytes(options.maxBodyBytes ?? DEFAULT_MAX_WEBHOOK_BYTES);
   const errorStatus = validateHttpErrorStatus(options.httpErrorStatus);
   const sigHeader = options.signatureHeaderName ?? "X-Signature";
+  const provider = options.provider ?? "unknown";
 
   return (req, res, next) => {
+    let reachedVerify = false;
     try {
       const cl = extractSingleHeader(req.headers, "content-length");
       checkContentLengthHeader(cl, limit);
@@ -358,6 +364,7 @@ export function createExpressWebhookMiddleware(
           "Raw webhook body Buffer is required (configure express.raw() or attach req.rawBody)",
         );
       }
+      reachedVerify = true;
       verifyRawWebhookRequest({
         rawBody,
         headers: req.headers,
@@ -369,6 +376,7 @@ export function createExpressWebhookMiddleware(
         timestampSeparator: options.timestampSeparator,
         replayCheck: options.replayCheck,
         algorithm: options.algorithm,
+        encoding: options.encoding,
         remoteIp: req.ip ?? req.socket?.remoteAddress ?? null,
         allowedNetworks: options.allowedNetworks,
         maxBodyBytes: limit,
@@ -378,6 +386,9 @@ export function createExpressWebhookMiddleware(
       });
       next();
     } catch (err) {
+      if (!reachedVerify && err instanceof WebhookVerificationError) {
+        emitWebhookTelemetry(options.telemetry, provider, false, err.message);
+      }
       if (err instanceof WebhookVerificationError && errorStatus !== null) {
         res.status(errorStatus).json({ error: "Webhook verification failed" });
         return;
@@ -401,12 +412,14 @@ export interface FastifyLikeReply {
 /** Build a Fastify preHandler hook that verifies raw webhook payloads. */
 export function createFastifyWebhookPreHandler(
   options: FrameworkWebhookVerifierOptions,
-): (request: FastifyLikeRequest, reply: FastifyLikeReply) => Promise<void> {
+): (request: FastifyLikeRequest, reply: FastifyLikeReply) => Promise<unknown> {
   const limit = validateMaxBodyBytes(options.maxBodyBytes ?? DEFAULT_MAX_WEBHOOK_BYTES);
   const errorStatus = validateHttpErrorStatus(options.httpErrorStatus);
   const sigHeader = options.signatureHeaderName ?? "X-Signature";
+  const provider = options.provider ?? "unknown";
 
   return async (request, reply) => {
+    let reachedVerify = false;
     try {
       const cl = extractSingleHeader(request.headers, "content-length");
       checkContentLengthHeader(cl, limit);
@@ -423,6 +436,7 @@ export function createFastifyWebhookPreHandler(
           "Raw webhook body is required on Fastify request (enable rawBody)",
         );
       }
+      reachedVerify = true;
       verifyRawWebhookRequest({
         rawBody,
         headers: request.headers,
@@ -434,6 +448,7 @@ export function createFastifyWebhookPreHandler(
         timestampSeparator: options.timestampSeparator,
         replayCheck: options.replayCheck,
         algorithm: options.algorithm,
+        encoding: options.encoding,
         remoteIp: request.ip ?? null,
         allowedNetworks: options.allowedNetworks,
         maxBodyBytes: limit,
@@ -442,9 +457,11 @@ export function createFastifyWebhookPreHandler(
         now: options.now,
       });
     } catch (err) {
+      if (!reachedVerify && err instanceof WebhookVerificationError) {
+        emitWebhookTelemetry(options.telemetry, provider, false, err.message);
+      }
       if (err instanceof WebhookVerificationError && errorStatus !== null) {
-        reply.code(errorStatus).send({ error: "Webhook verification failed" });
-        return;
+        return reply.code(errorStatus).send({ error: "Webhook verification failed" });
       }
       throw err;
     }
