@@ -180,6 +180,13 @@ function buildProductConfig(
   env: Record<string, string | undefined>,
   readStdin: () => Buffer,
 ): ProductConfig {
+  const subKeyFile = getOpt(flags, ["subscription-key-file"]);
+  const apiKeyFile = getOpt(flags, ["api-key-file"]);
+  if (subKeyFile === "-" && apiKeyFile === "-") {
+    throw new RangeError(
+      "Cannot read both --subscription-key-file and --api-key-file from stdin ('-')",
+    );
+  }
   const subKey = resolveSecret(
     getOpt(
       flags,
@@ -187,7 +194,7 @@ function buildProductConfig(
       `JS_MOMO_SDK_${prefix}_SUBSCRIPTION_KEY`,
       env,
     ),
-    getOpt(flags, ["subscription-key-file"]),
+    subKeyFile,
     "subscriptionKey",
     readStdin,
   );
@@ -204,7 +211,7 @@ function buildProductConfig(
   }
   const apiKey = resolveSecret(
     getOpt(flags, ["api-key", "p"], `JS_MOMO_SDK_${prefix}_API_KEY`, env),
-    getOpt(flags, ["api-key-file"]),
+    apiKeyFile,
     "apiKey",
     readStdin,
   );
@@ -310,13 +317,19 @@ export async function runCli(
     if (cmd === "webhook" && sub === "verify") {
       const signature = getOpt(flags, ["signature", "s"]);
       if (!signature) throw new RangeError("--signature is required");
+      const secretFile = getOpt(flags, ["secret-file"]);
+      const payloadFile = getOpt(flags, ["payload-file"]) ?? "-";
+      if (secretFile === "-" && payloadFile === "-") {
+        throw new RangeError(
+          "Cannot read both --secret-file and --payload-file from stdin ('-')",
+        );
+      }
       const secret = resolveSecret(
         getOpt(flags, ["secret"], "JS_MOMO_SDK_WEBHOOK_SECRET", env),
-        getOpt(flags, ["secret-file"]),
+        secretFile,
         "secret",
         readStdin,
       );
-      const payloadFile = getOpt(flags, ["payload-file"]) ?? "-";
       const raw = payloadFile === "-" ? readStdin() : readFileSync(payloadFile);
       const algorithm = getOpt(flags, ["algorithm"]) ?? "sha256";
       if (getBool(flags, ["timestamped"])) {

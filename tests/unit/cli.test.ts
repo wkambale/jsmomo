@@ -100,6 +100,50 @@ describe("JS MoMo SDK CLI", () => {
     );
     expect(tsRes.code).toBe(0);
 
+    // Reject conflicting stdin usage for both --secret-file and --payload-file (Issue #46)
+    let stdinCalls = 0;
+    const conflictErr: string[] = [];
+    const conflictCode = await runCli(
+      ["webhook", "verify", "-s", sig, "--secret-file", "-", "--payload-file", "-"],
+      {
+        stdout: () => {},
+        stderr: (l) => conflictErr.push(l),
+        env: {},
+        readStdin: () => {
+          stdinCalls += 1;
+          return Buffer.from("whsec", "utf8");
+        },
+      },
+    );
+    expect(conflictCode).toBe(1);
+    expect(conflictErr.join("\n")).toContain("stdin");
+    expect(stdinCalls).toBe(0);
+
+    const defaultPayloadConflict = await captureCli(
+      ["webhook", "verify", "-s", sig, "--secret-file", "-"],
+      { stdin: Buffer.from("whsec", "utf8") },
+    );
+    expect(defaultPayloadConflict.code).toBe(1);
+    expect(defaultPayloadConflict.stderr).toContain("stdin");
+
+    const payloadPath = join(tmpDir, "webhook-payload.json");
+    writeFileSync(payloadPath, payload);
+    const stdinSecretOk = await captureCli(
+      [
+        "webhook",
+        "verify",
+        "-s",
+        sig,
+        "--secret-file",
+        "-",
+        "--payload-file",
+        payloadPath,
+      ],
+      { stdin: Buffer.from("whsec\n", "utf8") },
+    );
+    expect(stdinSecretOk.code).toBe(0);
+    expect(JSON.parse(stdinSecretOk.stdout)).toEqual({ verified: true });
+
     const { publicKey } = generateKeyPairSync("rsa", {
       modulusLength: 2048,
       publicKeyEncoding: { type: "spki", format: "pem" },
