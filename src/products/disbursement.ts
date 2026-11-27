@@ -152,7 +152,7 @@ export class Disbursement extends BaseProduct {
     validateReferenceId(referenceId);
     const response = await this.http.request(
       "GET",
-      `/disbursement/v2_0/deposit/${referenceId}`,
+      `/disbursement/v1_0/deposit/${referenceId}`,
       {
         headers: await this.buildHeaders(),
         productName: this.productName,
@@ -210,7 +210,7 @@ export class Disbursement extends BaseProduct {
     validateReferenceId(referenceId);
     const response = await this.http.request(
       "GET",
-      `/disbursement/v2_0/refund/${referenceId}`,
+      `/disbursement/v1_0/refund/${referenceId}`,
       {
         headers: await this.buildHeaders(),
         productName: this.productName,

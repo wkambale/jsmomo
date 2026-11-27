@@ -103,7 +103,7 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
           if (url.endsWith("/active")) {
             return jsonResp({ result: true });
           }
-          if (url.endsWith("/basicuserinfo")) {
+          if (url.endsWith("/basicuserinfo") || url.endsWith("/oauth2/v1_0/userinfo")) {
             return jsonResp({
               given_name: "Ada",
               family_name: "Lovelace",
@@ -201,6 +201,30 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     });
     expect(refreshed.accessToken).toBe("user-tok-secret");
 
+    // Official CIBA consented userinfo endpoint & official v1_0/oauth2 paths (Issue #32)
+    const consentedUser = await sdk.collection.getUserInfoWithConsent(
+      oauth.accessToken,
+    );
+    expect(consentedUser.givenName).toBe("Ada");
+    await expect(sdk.collection.getUserInfoWithConsent("  ")).rejects.toThrow(
+      RangeError,
+    );
+    expect(requests.some((r) => r.url.endsWith("/collection/oauth2/token/"))).toBe(
+      true,
+    );
+    expect(
+      requests.some(
+        (r) =>
+          r.url.endsWith("/collection/oauth2/v1_0/userinfo") &&
+          r.headers["Authorization"] === "Bearer user-tok-secret",
+      ),
+    ).toBe(true);
+    expect(
+      requests.some((r) =>
+        r.url.endsWith(`/collection/v1_0/requesttowithdraw/${wRef}`),
+      ),
+    ).toBe(true);
+
     // Disbursement
     const trRef = await sdk.disbursement.transfer({
       amount: "500",
@@ -227,6 +251,12 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     expect((await sdk.disbursement.getRefundStatus(refndRef)).isSuccessful()).toBe(
       true,
     );
+    expect(
+      requests.some((r) => r.url.endsWith(`/disbursement/v1_0/deposit/${depRef}`)),
+    ).toBe(true);
+    expect(
+      requests.some((r) => r.url.endsWith(`/disbursement/v1_0/refund/${refndRef}`)),
+    ).toBe(true);
 
     // Remittance
     const remRef = await sdk.remittance.transfer({

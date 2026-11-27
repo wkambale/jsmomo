@@ -10,6 +10,7 @@ const TOKEN_PATHS = new Set([
   "/collection/token/",
   "/disbursement/token/",
   "/remittance/token/",
+  "/collection/oauth2/token/",
   "/collection/v1_0/oauth2/token/",
   "/auth/oauth2/token",
   "/oauth/v3/token",
@@ -24,9 +25,12 @@ const MTN_WRITE_PATHS = new Set([
 ]);
 const MTN_STATUS_PREFIXES = [
   "/collection/v1_0/requesttopay/",
+  "/collection/v1_0/requesttowithdraw/",
   "/collection/v2_0/requesttowithdraw/",
   "/disbursement/v1_0/transfer/",
+  "/disbursement/v1_0/deposit/",
   "/disbursement/v2_0/deposit/",
+  "/disbursement/v1_0/refund/",
   "/disbursement/v2_0/refund/",
   "/remittance/v1_0/transfer/",
 ] as const;
@@ -584,7 +588,10 @@ export function createMockServer(options: MockServerOptions = {}): {
         sendJson(res, 200, { result: true });
         return;
       }
-      if (path.includes("/accountholder/") && path.endsWith("/basicuserinfo")) {
+      if (
+        (path.includes("/accountholder/") && path.endsWith("/basicuserinfo")) ||
+        path === "/collection/oauth2/v1_0/userinfo"
+      ) {
         sendJson(res, 200, { given_name: "Mock", family_name: "User" });
         return;
       }
