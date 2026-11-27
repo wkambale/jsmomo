@@ -27,7 +27,20 @@ const MTN_CAPABILITIES = new ProviderCapabilities({
   supportsDisbursement: true,
   supportsBalance: true,
   supportsWebhookHmac: false,
-  currencies: ["UGX", "GHS", "ZMW", "XAF", "XOF", "EUR", "ZAR", "SZL", "LRD", "GNF"],
+  currencies: [
+    "UGX",
+    "GHS",
+    "ZMW",
+    "XAF",
+    "XOF",
+    "EUR",
+    "ZAR",
+    "SZL",
+    "LRD",
+    "GNF",
+    "RWF",
+    "NGN",
+  ],
 });
 
 function mapMtnResult(referenceId: string, result: TransactionResult): PaymentResult {

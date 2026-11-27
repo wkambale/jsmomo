@@ -37,7 +37,7 @@ export const ORANGE_DEFAULT_API_PATH_PREFIX = "/orange-money-webpay/dev/v1";
 
 const MAX_PAYMENT_CONTEXT = 4096;
 const VALID_ORANGE_ENVIRONMENTS = new Set(["sandbox", "production"]);
-const ORANGE_INTEGER_CURRENCIES = new Set(["XOF", "XAF", "OUV"]);
+const ORANGE_INTEGER_CURRENCIES = new Set(["XOF", "XAF", "OUV", "GNF"]);
 
 const ORANGE_CAPABILITIES = new ProviderCapabilities({
   providerId: "orange_money",
@@ -45,7 +45,7 @@ const ORANGE_CAPABILITIES = new ProviderCapabilities({
   supportsDisbursement: false,
   supportsBalance: false,
   supportsWebhookHmac: false,
-  currencies: ["XOF", "XAF", "OUV"],
+  currencies: ["XOF", "XAF", "OUV", "CDF", "GNF", "LRD", "MGA", "SLE", "BWP", "USD"],
 });
 
 export interface OrangePaymentContext {

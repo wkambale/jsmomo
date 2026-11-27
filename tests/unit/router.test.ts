@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { JsMomoSDK } from "../../src/client.js";
+import { ProductConfig } from "../../src/config.js";
 import {
   AuthenticationError,
   JsMomoSDKError,
@@ -9,7 +11,10 @@ import {
 import type { PaymentProvider } from "../../src/providers/index.js";
 import {
   DisbursementRequest,
+  MtnMomoProvider,
   NormalizedStatus,
+  OrangeMoneyClient,
+  OrangeMoneyProvider,
   PaymentRequest,
   PaymentResult,
   PaymentRouter,
@@ -323,5 +328,85 @@ describe("PaymentRouter", () => {
         { provider: "mtn_momo" },
       ),
     ).rejects.toThrow("not registered");
+  });
+
+  it("routes Rwanda, Nigeria, DRC, Guinea, and Liberia numbers to MTN and Orange with real provider capabilities (Issue #40)", async () => {
+    const mtnSdk = new JsMomoSDK(
+      {
+        collection: new ProductConfig({
+          subscriptionKey: "sub",
+          apiUser: "user",
+          apiKey: "key",
+        }),
+      },
+      {
+        fetch: async (url) => {
+          if (url.endsWith("/token/")) {
+            return new Response(
+              JSON.stringify({
+                access_token: "mtn-tok",
+                token_type: "access_token",
+                expires_in: 3600,
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(null, { status: 202 });
+        },
+      },
+    );
+    const orangeClient = new OrangeMoneyClient(
+      {
+        clientId: "cid",
+        clientSecret: "csec",
+        merchantKey: "mkey",
+        returnUrl: "https://shop.example.com/ret",
+        cancelUrl: "https://shop.example.com/cancel",
+        notifUrl: "https://shop.example.com/notif",
+      },
+      {
+        fetch: async (url) => {
+          if (url.endsWith("/oauth/v3/token")) {
+            return new Response(
+              JSON.stringify({ access_token: "om-tok", expires_in: 3600 }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              pay_token: "pt-1",
+              notif_token: "nt-1",
+              payment_url: "https://webpayment.orange.com/pay/pt-1",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        },
+      },
+    );
+
+    const router = new PaymentRouter({
+      providers: [new MtnMomoProvider(mtnSdk), new OrangeMoneyProvider(orangeClient)],
+    });
+
+    const cases: Array<[string, string, string]> = [
+      ["+250781234567", "RWF", "mtn_momo"],
+      ["+2348031234567", "NGN", "mtn_momo"],
+      ["+243841234567", "CDF", "orange_money"],
+      ["+224621234567", "GNF", "orange_money"],
+      ["+231771234567", "LRD", "orange_money"],
+    ];
+    for (const [payerMsisdn, currency, expectedProvider] of cases) {
+      const res = await router.collect(
+        new PaymentRequest({
+          amount: "1000",
+          currency,
+          payerMsisdn,
+        }),
+      );
+      expect(res.provider).toBe(expectedProvider);
+      expect(res.currency).toBe(currency);
+    }
+
+    await router.close();
   });
 });
