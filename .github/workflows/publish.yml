@@ -12,15 +12,18 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: "npm"
-      - name: Verify release tag matches package.json version
+      - name: Verify release tag matches package.json version and main ancestry
         if: github.event_name == 'release'
         run: |
           TAG_VER="${GITHUB_REF_NAME#v}"
@@ -29,6 +32,22 @@ jobs:
             echo "Release tag (${TAG_VER}) does not match package.json (${PKG_VER})"
             exit 1
           fi
+          if ! git rev-parse --verify refs/remotes/origin/main >/dev/null 2>&1; then
+            echo "Unable to resolve refs/remotes/origin/main"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "Release commit $(git rev-parse HEAD) is not an ancestor of origin/main"
+            exit 1
+          fi
+      - name: Resolve release tag output
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_EVENT_NAME}" != "release" ]; then
+            TAG="v$(node -p "require('./package.json').version")"
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm run verify
@@ -44,7 +63,7 @@ jobs:
           node -e "const sdk = require('js-momo-sdk'); if (!sdk.VERSION) process.exit(1); console.log('CJS OK', sdk.VERSION);"
           node --input-type=module -e "import { VERSION, PaymentRouter } from 'js-momo-sdk'; if (!VERSION || !PaymentRouter) process.exit(1); console.log('ESM OK', VERSION);"
           npx --no-install js-momo-sdk --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: npm-tarball
           path: artifacts/
@@ -58,32 +77,41 @@ jobs:
       url: https://www.npmjs.com/package/js-momo-sdk
     permissions:
       id-token: write
-      contents: write
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
-          cache: "npm"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: npm-tarball
           path: artifacts
+      - name: Verify tarball SHA-256 checksum
+        run: (cd artifacts && sha256sum -c SHA256SUMS.txt)
       - name: Stage package to npm via Trusted Publishing (OIDC)
         run: |
           npm --version
           TARBALL=$(ls artifacts/*.tgz)
           npm stage publish "${GITHUB_WORKSPACE}/${TARBALL}" --access public --provenance
+
+  attach-release-assets:
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-tarball
+          path: artifacts
+      - name: Verify tarball SHA-256 checksum
+        run: (cd artifacts && sha256sum -c SHA256SUMS.txt)
       - name: Attach tarball and checksums to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_EVENT_NAME}" != "release" ]; then
-            TAG="v$(node -p "require('./package.json').version")"
-          fi
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" artifacts/*.tgz artifacts/SHA256SUMS.txt --clobber
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" artifacts/*.tgz artifacts/SHA256SUMS.txt --repo "${GITHUB_REPOSITORY}" --clobber
           fi
