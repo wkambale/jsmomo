@@ -956,7 +956,7 @@ export interface WaitForSettlementOptions {
 }
 
 interface PollableResult {
-  status?: string;
+  status?: unknown;
   reason?: string | null;
   referenceId?: string | null;
   externalId?: string | null;

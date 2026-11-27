@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { AirtelTransactionResponse } from "../../src/airtel/models.js";
 import { JsMomoSDKError, TransactionFailedError } from "../../src/exceptions.js";
 import {
   buildBasicAuthHeader,
@@ -291,5 +292,53 @@ describe("utils", () => {
     await expect(
       waitForSettlement(async () => ({ status: "SUCCESSFUL" }), { backoff: 0.5 }),
     ).rejects.toThrow(RangeError);
+
+    // Works natively with AirtelTransactionResponse (Issue #41)
+    let airPolls = 0;
+    const airSettled = await waitForSettlement(
+      async () => {
+        airPolls += 1;
+        return new AirtelTransactionResponse(
+          { code: "200", message: "OK", resultCode: "00", success: true },
+          {
+            airtelMoneyId: airPolls === 1 ? null : "AM-1",
+            id: "airtel-tx-1",
+            status: airPolls === 1 ? "TIP" : "TS",
+            message: airPolls === 1 ? "Pending" : "Success",
+            amount: "1000",
+            currency: "UGX",
+            reference: "ext-air-1",
+          },
+        );
+      },
+      { interval: 0.01, sleepFn: async () => {} },
+    );
+    expect(airSettled.isSuccessful()).toBe(true);
+    expect(airSettled.referenceId).toBe("airtel-tx-1");
+
+    const airFailed = new AirtelTransactionResponse(
+      {
+        code: "200",
+        message: "Transaction Failed",
+        resultCode: "DP00800001003",
+        success: false,
+      },
+      {
+        airtelMoneyId: null,
+        id: "airtel-fail-99",
+        status: "TF",
+        message: "Insufficient balance",
+        amount: "1000",
+        currency: "UGX",
+        reference: "ext-fail-99",
+      },
+    );
+    await expect(
+      waitForSettlement(async () => airFailed, { raiseOnFailed: true }),
+    ).rejects.toMatchObject({
+      name: TransactionFailedError.name,
+      referenceId: "airtel-fail-99",
+      reason: "Insufficient balance",
+    });
   });
 });
