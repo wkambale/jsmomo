@@ -256,6 +256,9 @@ export interface FlutterwaveTransferParams {
   currency: string;
   accountNumber: string;
   accountBank?: string | null;
+  beneficiaryName?: string | null;
+  debitCurrency?: string | null;
+  meta?: Record<string, unknown> | readonly Record<string, unknown>[] | null;
   reference?: string | null;
   narration?: string;
   callbackUrl?: string | null;
@@ -368,6 +371,26 @@ export class FlutterwaveClient {
       narration: params.narration ?? "Payout",
       reference: ref,
     };
+    if (params.beneficiaryName !== undefined && params.beneficiaryName !== null) {
+      if (
+        typeof params.beneficiaryName !== "string" ||
+        !params.beneficiaryName.trim()
+      ) {
+        throw new RangeError("beneficiaryName must not be blank");
+      }
+      payload["beneficiary_name"] = validateHeaderValue(params.beneficiaryName.trim(), {
+        fieldName: "beneficiaryName",
+      });
+    }
+    if (params.debitCurrency !== undefined && params.debitCurrency !== null) {
+      payload["debit_currency"] = validateCurrency(params.debitCurrency);
+    }
+    if (params.meta !== undefined && params.meta !== null) {
+      if (typeof params.meta !== "object") {
+        throw new RangeError("meta must be an object or array of objects");
+      }
+      payload["meta"] = params.meta;
+    }
     if (params.callbackUrl !== undefined && params.callbackUrl !== null) {
       payload["callback_url"] = params.callbackUrl;
     }

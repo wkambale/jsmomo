@@ -711,8 +711,9 @@ describe("Pan-African Providers Integration", () => {
     });
     expect(inspect(cfg)).not.toContain("FLWSECK_TEST-123");
 
+    let capturedFlwTransferBody: Record<string, unknown> | null = null;
     const client = new FlutterwaveClient(cfg, {
-      fetch: async (url) => {
+      fetch: async (url, init) => {
         if (url.endsWith("/v3/payments")) {
           return jsonResp({
             status: "success",
@@ -732,6 +733,10 @@ describe("Pan-African Providers Integration", () => {
           });
         }
         if (url.endsWith("/v3/transfers")) {
+          capturedFlwTransferBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
           return jsonResp({
             status: "success",
             data: { id: 777, reference: "flw-tr-1", status: "NEW" },
@@ -775,6 +780,39 @@ describe("Pan-African Providers Integration", () => {
     expect((await flw.getStatus("777", { kind: "disbursement" })).isSuccessful()).toBe(
       true,
     );
+    // Issue #38: Mobile money transfer supports beneficiary_name, debit_currency, and meta
+    await client.createTransfer({
+      amount: "1200",
+      currency: "KES",
+      accountBank: "MPS",
+      accountNumber: "254712345678",
+      beneficiaryName: "Akinyi Kimwei",
+      debitCurrency: "NGN",
+      meta: [
+        {
+          sender: "Acme Corp",
+          sender_country: "KE",
+          mobile_number: "254712345678",
+        },
+      ],
+    });
+    expect(capturedFlwTransferBody).toMatchObject({
+      account_bank: "MPS",
+      beneficiary_name: "Akinyi Kimwei",
+      debit_currency: "NGN",
+      meta: [
+        { sender: "Acme Corp", sender_country: "KE", mobile_number: "254712345678" },
+      ],
+    });
+    await expect(
+      client.createTransfer({
+        amount: "1200",
+        currency: "KES",
+        accountBank: "MPS",
+        accountNumber: "254712345678",
+        beneficiaryName: "   ",
+      }),
+    ).rejects.toThrow("beneficiaryName");
     expect((await flw.getBalance()).availableBalance).toBe("12000");
 
     client.verifyWebhookHash("my-flw-hash");
