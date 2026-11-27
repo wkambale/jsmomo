@@ -184,7 +184,12 @@ export interface AirtelWalletDetails {
 }
 
 export interface AirtelBalanceResponse {
-  readonly data: { readonly wallet: AirtelWalletDetails };
+  readonly data: {
+    readonly balance: string;
+    readonly currency: string;
+    readonly accountStatus: string;
+    readonly wallet: AirtelWalletDetails;
+  };
   readonly status: AirtelStatus | null;
 }
 
@@ -316,12 +321,7 @@ export function parseAirtelBalanceResponse(
 ): AirtelBalanceResponse {
   const raw = parseJsonObject(response, referenceId);
   const dataObj = raw["data"];
-  const walletObj =
-    dataObj && typeof dataObj === "object" && !Array.isArray(dataObj)
-      ? (dataObj as Record<string, unknown>)["wallet"]
-      : null;
-
-  if (!walletObj || typeof walletObj !== "object" || Array.isArray(walletObj)) {
+  if (!dataObj || typeof dataObj !== "object" || Array.isArray(dataObj)) {
     throw new JsMomoSDKError(
       "API response did not match expected AirtelBalanceResponse schema",
       {
@@ -331,18 +331,27 @@ export function parseAirtelBalanceResponse(
       },
     );
   }
-  const w = walletObj as Record<string, unknown>;
-  const msisdn = optStr(w["msisdn"]);
+  const d = dataObj as Record<string, unknown>;
+  const nestedWallet = d["wallet"];
+  const source =
+    nestedWallet && typeof nestedWallet === "object" && !Array.isArray(nestedWallet)
+      ? (nestedWallet as Record<string, unknown>)
+      : d;
+
+  const balanceRaw = source["balance"] ?? d["balance"];
   const balance =
-    typeof w["balance"] === "number" ? String(w["balance"]) : optStr(w["balance"]);
-  const currency = optStr(w["currency"]);
-  const walletStatus = optStr(w["status"]);
-  if (
-    msisdn === null ||
-    balance === null ||
-    currency === null ||
-    walletStatus === null
-  ) {
+    typeof balanceRaw === "number" ? String(balanceRaw) : optStr(balanceRaw);
+  const currency = optStr(source["currency"] ?? d["currency"]);
+  const msisdn = optStr(source["msisdn"] ?? d["msisdn"] ?? d["account_number"]) ?? "";
+  const walletStatus =
+    optStr(
+      source["status"] ??
+        source["account_status"] ??
+        d["account_status"] ??
+        d["status"],
+    ) ?? "ACTIVE";
+
+  if (balance === null || currency === null) {
     throw new JsMomoSDKError(
       "API response did not match expected AirtelBalanceResponse schema",
       {
@@ -354,6 +363,9 @@ export function parseAirtelBalanceResponse(
   }
   return Object.freeze({
     data: Object.freeze({
+      balance,
+      currency,
+      accountStatus: walletStatus,
       wallet: Object.freeze({
         msisdn,
         balance,

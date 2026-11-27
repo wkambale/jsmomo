@@ -152,16 +152,13 @@ describe("Pan-African Providers Integration", () => {
               data: { transaction: { id: "D1", status: "TF", message: "Declined" } },
             });
           }
-          if (url.endsWith("/merchant/v2/wallets/balance/")) {
+          if (url.endsWith("/standard/v1/users/balance")) {
             return jsonResp({
               status: { code: "200", message: "OK", success: true },
               data: {
-                wallet: {
-                  msisdn: "750000000",
-                  balance: "33000",
-                  currency: "UGX",
-                  status: "ACTIVE",
-                },
+                balance: "33000",
+                currency: "UGX",
+                account_status: "Active",
               },
             });
           }

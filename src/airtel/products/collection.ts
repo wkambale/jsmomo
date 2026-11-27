@@ -84,4 +84,31 @@ export class AirtelCollection {
     );
     return parseAirtelTransactionResponse(response, referenceId);
   }
+
+  /** Refund a completed Airtel collection payment by its `airtel_money_id`. */
+  public async refund(airtelMoneyId: string): Promise<AirtelTransactionResponse> {
+    validateAirtelReferenceId(airtelMoneyId);
+    const response = await this.client.request("POST", "/standard/v1/payments/refund", {
+      json: {
+        transaction: {
+          airtel_money_id: airtelMoneyId,
+        },
+      },
+      referenceId: airtelMoneyId,
+    });
+    if (response.body.byteLength > 0) {
+      let parsed: unknown;
+      try {
+        parsed = response.json();
+      } catch {
+        parsed = null;
+      }
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        checkAirtelResponseStatus(parsed as Record<string, unknown>, {
+          referenceId: airtelMoneyId,
+        });
+      }
+    }
+    return parseAirtelTransactionResponse(response, airtelMoneyId);
+  }
 }

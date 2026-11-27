@@ -369,6 +369,26 @@ export function createMockServer(options: MockServerOptions = {}): {
         return;
       }
 
+      if (path === "/standard/v1/payments/refund") {
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const rawTx = body["transaction"];
+        const tx =
+          rawTx && typeof rawTx === "object" && !Array.isArray(rawTx)
+            ? (rawTx as Record<string, unknown>)
+            : {};
+        const amId = String(tx["airtel_money_id"] ?? "mock-am-id");
+        sendJson(res, 200, {
+          status: { code: "200", message: "SUCCESS", result_code: "00", success: true },
+          data: {
+            transaction: {
+              airtel_money_id: amId,
+              status: airtelCode(),
+            },
+          },
+        });
+        return;
+      }
+
       if (path === "/merchant/v1/payments/" || path === "/standard/v1/disbursements/") {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const rawTx = body["transaction"];
@@ -625,16 +645,11 @@ export function createMockServer(options: MockServerOptions = {}): {
         path === "/standard/v1/users/balance"
       ) {
         sendJson(res, 200, {
-          status: { code: "200", message: "OK", result_code: "00" },
+          status: { code: "200", message: "OK", result_code: "00", success: true },
           data: {
             balance: "5000.00",
             currency: "UGX",
-            wallet: {
-              msisdn: "256750000000",
-              balance: "5000.00",
-              currency: "UGX",
-              status: "ACTIVE",
-            },
+            account_status: "Active",
           },
         });
         return;
