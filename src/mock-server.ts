@@ -499,6 +499,27 @@ export function createMockServer(options: MockServerOptions = {}): {
         return;
       }
 
+      if (path === "/transferrecipient") {
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const code = `RCP_mock_${state.nextId()}`;
+        sendJson(res, 201, {
+          status: true,
+          message: "Transfer recipient created successfully",
+          data: {
+            active: true,
+            currency: String(body["currency"] ?? "NGN"),
+            name: String(body["name"] ?? "Mock Recipient"),
+            recipient_code: code,
+            type: String(body["type"] ?? "mobile_money"),
+            details: {
+              account_number: String(body["account_number"] ?? ""),
+              bank_code: String(body["bank_code"] ?? ""),
+            },
+          },
+        });
+        return;
+      }
+
       if (path === "/transaction/initialize" || path === "/transfer") {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
         const ref = String(body["reference"] ?? "ps-mock-ref");

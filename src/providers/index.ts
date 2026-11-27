@@ -70,6 +70,7 @@ export {
   type PaystackInitializeParams,
   PaystackProvider,
   type PaystackTransferParams,
+  type PaystackTransferRecipientParams,
 } from "./paystack.js";
 export {
   PaymentRouter,

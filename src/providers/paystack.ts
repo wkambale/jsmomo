@@ -314,6 +314,16 @@ export interface PaystackInitializeParams {
   callbackUrl?: string | null;
 }
 
+export interface PaystackTransferRecipientParams {
+  type: "mobile_money" | "nuban" | "ghipss" | "basa" | "kepss" | string;
+  name: string;
+  accountNumber: string;
+  bankCode: string;
+  currency: string;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface PaystackTransferParams {
   amount: string;
   currency: string;
@@ -392,6 +402,56 @@ export class PaystackClient {
       referenceId: reference,
     });
     return parseJsonObject(response, reference);
+  }
+
+  public async createTransferRecipient(
+    params: PaystackTransferRecipientParams,
+  ): Promise<Record<string, unknown>> {
+    if (typeof params.type !== "string" || !params.type.trim()) {
+      throw new RangeError("type must be a non-empty string");
+    }
+    if (typeof params.name !== "string" || !params.name.trim()) {
+      throw new RangeError("name must be a non-empty string");
+    }
+    if (typeof params.accountNumber !== "string" || !params.accountNumber.trim()) {
+      throw new RangeError("accountNumber must be a non-empty string");
+    }
+    if (typeof params.bankCode !== "string" || !params.bankCode.trim()) {
+      throw new RangeError("bankCode must be a non-empty string");
+    }
+    const type = validateHeaderValue(params.type.trim(), { fieldName: "type" });
+    const name = params.name.trim();
+    const accountNumber = validateHeaderValue(params.accountNumber.trim(), {
+      fieldName: "accountNumber",
+    });
+    const bankCode = validateHeaderValue(params.bankCode.trim(), {
+      fieldName: "bankCode",
+    });
+    const currency = validateCurrency(params.currency);
+    const payload: Record<string, unknown> = {
+      type,
+      name,
+      account_number: accountNumber,
+      bank_code: bankCode,
+      currency,
+    };
+    if (params.description !== undefined && params.description !== null) {
+      if (typeof params.description !== "string" || !params.description.trim()) {
+        throw new RangeError("description must not be blank");
+      }
+      payload["description"] = params.description.trim();
+    }
+    if (params.metadata !== undefined && params.metadata !== null) {
+      if (typeof params.metadata !== "object" || Array.isArray(params.metadata)) {
+        throw new RangeError("metadata must be a JSON object");
+      }
+      payload["metadata"] = params.metadata;
+    }
+    const response = await this.http.request("POST", "/transferrecipient", {
+      headers: this.headers(),
+      json: payload,
+    });
+    return parseJsonObject(response);
   }
 
   public async initiateTransfer(

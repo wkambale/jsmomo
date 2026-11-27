@@ -189,6 +189,16 @@ describe("Local Mock Gateway Server", () => {
 
     // 5. Paystack
     const ps = new PaystackClient({ secretKey: "sk", baseUrl: mock.url });
+    const psRec = await ps.createTransferRecipient({
+      type: "mobile_money",
+      name: "Kofi Boateng",
+      accountNumber: "0551234567",
+      bankCode: "MTN",
+      currency: "GHS",
+    });
+    expect(
+      String((psRec["data"] as Record<string, unknown>)["recipient_code"]),
+    ).toMatch(/^RCP_mock_/);
     await ps.initializeTransaction({
       email: "a@b.com",
       amount: "50",
