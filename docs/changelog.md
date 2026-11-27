@@ -2,6 +2,16 @@
 
 All notable changes to **JS MoMo SDK** (`js-momo-sdk`) are listed below.
 
+## 1.2.1 — 2026-11-27
+
+End-to-end real-rail parity, API completeness, retry safety, and supply-chain hardening release addressing all 19 verified audit issues (#31–#47, #49, #56):
+
+- **Production HTTPS & credential guards (#31, #36, #63, #67):** Enforce `allowLocalhost: environment === "sandbox"` across Paystack, Flutterwave, and Wave (auto-inferring production from live keys); require Base64 RSA ciphertext for `MpesaConfig.securityCredential` in production and export `encryptMpesaSecurityCredential()`.
+- **HTTP retry safety & SSRF hardening (#44, #45, #47, #57, #58, #73):** Remove HTTP `500` and `PUT`/`DELETE` from default retries, disable auto-retry on Paystack `POST /transfer` and `POST /transaction/initialize`, validate HTTP methods/headers upfront without retrying, and block RFC 3068/5737 IPv4 ranges.
+- **MTN MoMo & Airtel Money rail parity (#32, #33, #41, #61, #64, #65):** Align MTN OAuth2/withdraw/deposit/refund paths and add `getUserInfoWithConsent()`; align Airtel balance (`/standard/v1/users/balance`) and disbursement payloads, add `AirtelCollection.refund()`, add Base64 HMAC-SHA256 `AirtelClient.verifyWebhook()`, and make `AirtelTransactionResponse` compatible with `waitForSettlement()`.
+- **M-Pesa, Orange Money, Flutterwave, Paystack & Wave completeness (#34, #35, #38, #39, #43, #56, #66, #68–#71, #74):** Handle Daraja pending `500.001.1001`, add `MpesaClient.transactionStatus()` and STK/B2C callback parsers; persist Orange `notif_token` with constant-time `verifyNotification()` and `txnid` mapping; add Flutterwave `beneficiary_name`/`debit_currency`/`meta`; add `PaystackClient.createTransferRecipient()`; add Wave `restrict_payer_mobile`, `errorUrl` fallback, `GMD` support, outbound `Wave-Signature`, 30s webhook future-skew alignment, and checkout/payout refund, expire, reverse, and search endpoints.
+- **Validation, routing, webhooks, CLI & CI hardening (#37, #40, #42, #46, #49, #59, #60, #62, #72, #75):** Enforce zero-decimal currency checks across models/Wave/Flutterwave; align `MTN_CAPABILITIES` and `ORANGE_CAPABILITIES` currencies with carrier routing; add Base64 HMAC support, pre-check telemetry, and Fastify reply return; reject conflicting CLI stdin flags; pin all GitHub Actions to commit SHAs, add Dependabot, and verify tag ancestry & `SHA256SUMS.txt` in `publish.yml`.
+
 ## 1.2.0 — 2026-11-24
 
 Comprehensive security hardening release addressing all 10 verified audit findings across webhooks, SSRF protection, provider configs, secret redaction, CLI file handling, token caching, and the mock server:
