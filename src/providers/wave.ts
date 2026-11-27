@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { inspect } from "node:util";
 
 import { JsMomoSDKError } from "../exceptions.js";
@@ -49,6 +50,7 @@ export interface WaveConfigOptions {
   apiKey: string;
   environment?: "sandbox" | "production";
   webhookSecret?: string | null;
+  signingSecret?: string | null;
   successUrl?: string | null;
   errorUrl?: string | null;
   baseUrl?: string;
@@ -63,6 +65,7 @@ export class WaveConfig {
   public readonly apiKey: string;
   public readonly environment: "sandbox" | "production";
   public readonly webhookSecret: string | null;
+  public readonly signingSecret: string | null;
   public readonly successUrl: string | null;
   public readonly errorUrl: string | null;
   public readonly baseUrl: string;
@@ -98,6 +101,16 @@ export class WaveConfig {
     } else {
       this.webhookSecret = null;
     }
+    if (options.signingSecret !== undefined && options.signingSecret !== null) {
+      if (typeof options.signingSecret !== "string" || !options.signingSecret.trim()) {
+        throw new RangeError("signingSecret must not be blank");
+      }
+      this.signingSecret = validateHeaderValue(options.signingSecret, {
+        fieldName: "signingSecret",
+      });
+    } else {
+      this.signingSecret = null;
+    }
     this.successUrl =
       options.successUrl !== undefined && options.successUrl !== null
         ? validateCallbackUrl(options.successUrl, { allowLocalhost })
@@ -117,7 +130,7 @@ export class WaveConfig {
   }
 
   public toString(): string {
-    return `WaveConfig(apiKey=<redacted>, webhookSecret=<redacted>, baseUrl=${JSON.stringify(this.baseUrl)}, timeout=${this.timeout})`;
+    return `WaveConfig(apiKey=<redacted>, webhookSecret=<redacted>, signingSecret=<redacted>, baseUrl=${JSON.stringify(this.baseUrl)}, timeout=${this.timeout})`;
   }
 
   public [inspect.custom](): string {
@@ -128,6 +141,7 @@ export class WaveConfig {
     return {
       apiKey: "<redacted>",
       webhookSecret: this.webhookSecret ? "<redacted>" : null,
+      signingSecret: this.signingSecret ? "<redacted>" : null,
       baseUrl: this.baseUrl,
       timeout: this.timeout,
     };
@@ -332,7 +346,10 @@ export class WaveClient {
     });
   }
 
-  private headers(idempotencyKey?: string | null): Record<string, string> {
+  private headers(
+    idempotencyKey?: string | null,
+    signedJsonBody?: string | null,
+  ): Record<string, string> {
     const out: Record<string, string> = {
       Authorization: `Bearer ${this.config.apiKey}`,
       "Content-Type": "application/json",
@@ -340,6 +357,17 @@ export class WaveClient {
     if (idempotencyKey) {
       validateHeaderValue(idempotencyKey, { fieldName: "clientReference" });
       out["Idempotency-Key"] = idempotencyKey;
+    }
+    if (
+      signedJsonBody !== undefined &&
+      signedJsonBody !== null &&
+      this.config.signingSecret
+    ) {
+      const ts = Math.floor(Date.now() / 1000);
+      const mac = createHmac("sha256", Buffer.from(this.config.signingSecret, "utf8"))
+        .update(`${ts}${signedJsonBody}`)
+        .digest("hex");
+      out["Wave-Signature"] = `t=${ts},v1=${mac}`;
     }
     return out;
   }
@@ -400,6 +428,56 @@ export class WaveClient {
     return parseWaveSession(parseJsonObject(response, sessionId), sessionId);
   }
 
+  public async refundCheckoutSession(sessionId: string): Promise<void> {
+    const encoded = encodePathSegment(sessionId, "sessionId");
+    await this.http.request("POST", `/v1/checkout/sessions/${encoded}/refund`, {
+      headers: this.headers(),
+      referenceId: sessionId,
+    });
+  }
+
+  public async expireCheckoutSession(sessionId: string): Promise<void> {
+    const encoded = encodePathSegment(sessionId, "sessionId");
+    await this.http.request("POST", `/v1/checkout/sessions/${encoded}/expire`, {
+      headers: this.headers(),
+      referenceId: sessionId,
+    });
+  }
+
+  public async searchCheckoutSessions(
+    clientReference: string,
+  ): Promise<WaveCheckoutSession[]> {
+    if (typeof clientReference !== "string" || !clientReference.trim()) {
+      throw new RangeError("clientReference must be a non-empty string");
+    }
+    const cleaned = clientReference.trim();
+    const response = await this.http.request(
+      "GET",
+      `/v1/checkout/sessions/search?client_reference=${encodeURIComponent(cleaned)}`,
+      {
+        headers: this.headers(),
+        referenceId: cleaned,
+      },
+    );
+    const body = parseJsonObject(response, cleaned);
+    const items = body["result"];
+    if (!Array.isArray(items)) {
+      throw new JsMomoSDKError(
+        "API response did not match expected Wave checkout search schema",
+        { referenceId: cleaned, provider: "Wave" },
+      );
+    }
+    return items.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new JsMomoSDKError(
+          "API response did not match expected WaveCheckoutSession schema",
+          { referenceId: cleaned, provider: "Wave" },
+        );
+      }
+      return parseWaveSession(item as Record<string, unknown>, cleaned);
+    });
+  }
+
   public async createPayout(params: WavePayoutParams): Promise<WavePayoutResponse> {
     const currency = validateCurrency(params.currency);
     const amount = validateAmount(params.amount, { currency });
@@ -424,8 +502,9 @@ export class WaveClient {
         payload[key] = val.trim();
       }
     }
+    const serialized = this.config.signingSecret ? JSON.stringify(payload) : null;
     const response = await this.http.request("POST", "/v1/payout", {
-      headers: this.headers(ref),
+      headers: this.headers(ref, serialized),
       json: payload,
       idempotent: true,
       referenceId: ref,
@@ -442,6 +521,46 @@ export class WaveClient {
     return parseWavePayout(parseJsonObject(response, payoutId), payoutId);
   }
 
+  public async reversePayout(payoutId: string): Promise<void> {
+    const encoded = encodePathSegment(payoutId, "payoutId");
+    await this.http.request("POST", `/v1/payout/${encoded}/reverse`, {
+      headers: this.headers(),
+      referenceId: payoutId,
+    });
+  }
+
+  public async searchPayouts(clientReference: string): Promise<WavePayoutResponse[]> {
+    if (typeof clientReference !== "string" || !clientReference.trim()) {
+      throw new RangeError("clientReference must be a non-empty string");
+    }
+    const cleaned = clientReference.trim();
+    const response = await this.http.request(
+      "GET",
+      `/v1/payouts/search?client_reference=${encodeURIComponent(cleaned)}`,
+      {
+        headers: this.headers(),
+        referenceId: cleaned,
+      },
+    );
+    const body = parseJsonObject(response, cleaned);
+    const items = body["result"];
+    if (!Array.isArray(items)) {
+      throw new JsMomoSDKError(
+        "API response did not match expected Wave payout search schema",
+        { referenceId: cleaned, provider: "Wave" },
+      );
+    }
+    return items.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        throw new JsMomoSDKError(
+          "API response did not match expected WavePayoutResponse schema",
+          { referenceId: cleaned, provider: "Wave" },
+        );
+      }
+      return parseWavePayout(item as Record<string, unknown>, cleaned);
+    });
+  }
+
   public async getBalance(): Promise<WaveBalanceResponse> {
     const response = await this.http.request("GET", "/v1/balance", {
       headers: this.headers(),
@@ -452,7 +571,11 @@ export class WaveClient {
   public verifyWebhook(
     payload: Uint8Array | Buffer | string,
     signatureHeader: string,
-    options: { toleranceSeconds?: number; now?: number } = {},
+    options: {
+      toleranceSeconds?: number;
+      maxFutureSkewSeconds?: number;
+      now?: number;
+    } = {},
   ): void {
     verifyTimestampedHmacSignature(
       payload,
@@ -460,6 +583,7 @@ export class WaveClient {
       this.config.webhookSecret ?? "",
       {
         toleranceSeconds: options.toleranceSeconds ?? 300,
+        maxFutureSkewSeconds: options.maxFutureSkewSeconds ?? 30,
         timestampSeparator: "",
         now: options.now,
       },

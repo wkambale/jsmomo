@@ -214,15 +214,24 @@ describe("Pan-African Providers Integration", () => {
     const cfg = new WaveConfig({
       apiKey: "wave_secret_key",
       webhookSecret: "whsec_wave",
+      signingSecret: "signsec_wave",
       successUrl: "https://shop.example.com/ok",
       errorUrl: "https://shop.example.com/err",
     });
     expect(inspect(cfg)).not.toContain("wave_secret_key");
+    expect(inspect(cfg)).not.toContain("signsec_wave");
     expect(cfg.toJSON()["apiKey"]).toBe("<redacted>");
+    expect(cfg.toJSON()["signingSecret"]).toBe("<redacted>");
 
     let capturedWaveCheckoutBody: Record<string, unknown> | null = null;
+    let capturedPayoutSig: string | null = null;
+    let capturedPayoutBody: string | null = null;
+    const calledWavePaths: string[] = [];
     const client = new WaveClient(cfg, {
       fetch: async (url, init) => {
+        calledWavePaths.push(
+          `${init?.method ?? "GET"} ${new URL(url).pathname}${new URL(url).search}`,
+        );
         if (url.endsWith("/v1/checkout/sessions")) {
           capturedWaveCheckoutBody = JSON.parse(String(init?.body)) as Record<
             string,
@@ -248,7 +257,31 @@ describe("Pan-African Providers Integration", () => {
             transaction_id: "tx-w1",
           });
         }
+        if (
+          url.endsWith("/v1/checkout/sessions/cos-1/refund") ||
+          url.endsWith("/v1/checkout/sessions/cos-1/expire") ||
+          url.endsWith("/v1/payout/pt-1/reverse")
+        ) {
+          return new Response(null, { status: 200 });
+        }
+        if (url.includes("/v1/checkout/sessions/search?client_reference=ord-1")) {
+          return jsonResp({
+            result: [
+              {
+                id: "cos-1",
+                amount: "1000",
+                currency: "XOF",
+                checkout_status: "complete",
+                payment_status: "succeeded",
+                client_reference: "ord-1",
+              },
+            ],
+          });
+        }
         if (url.endsWith("/v1/payout")) {
+          const hdrs = (init?.headers ?? {}) as Record<string, string>;
+          capturedPayoutSig = hdrs["Wave-Signature"] ?? null;
+          capturedPayoutBody = String(init?.body ?? "");
           return jsonResp({
             id: "pt-1",
             receive_amount: "2000",
@@ -264,6 +297,19 @@ describe("Pan-African Providers Integration", () => {
             currency: "XOF",
             status: "failed",
             payout_error: { code: "E1", message: "Wallet full" },
+          });
+        }
+        if (url.includes("/v1/payouts/search?client_reference=p-1")) {
+          return jsonResp({
+            result: [
+              {
+                id: "pt-1",
+                receive_amount: "2000",
+                currency: "XOF",
+                status: "succeeded",
+                client_reference: "p-1",
+              },
+            ],
           });
         }
         if (url.endsWith("/v1/balance")) {
@@ -341,7 +387,30 @@ describe("Pan-African Providers Integration", () => {
     expect(disSt.reason).toBe("E1: Wallet full");
     expect((await wave.getBalance()).availableBalance).toBe("75000");
 
-    // Wave webhook uses empty separator between ts and payload
+    // Issue #56: Outbound Wave-Signature on POST /v1/payout, refund/expire/reverse/search, and 30s webhook future skew
+    expect(capturedPayoutSig).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+    verifyTimestampedHmacSignature(
+      capturedPayoutBody ?? "",
+      capturedPayoutSig ?? "",
+      "signsec_wave",
+      { timestampSeparator: "" },
+    );
+    await client.refundCheckoutSession("cos-1");
+    await client.expireCheckoutSession("cos-1");
+    await client.reversePayout("pt-1");
+    const foundSessions = await client.searchCheckoutSessions("ord-1");
+    expect(foundSessions).toHaveLength(1);
+    expect(foundSessions[0]?.id).toBe("cos-1");
+    const foundPayouts = await client.searchPayouts("p-1");
+    expect(foundPayouts).toHaveLength(1);
+    expect(foundPayouts[0]?.id).toBe("pt-1");
+    expect(calledWavePaths).toContain("POST /v1/checkout/sessions/cos-1/refund");
+    expect(calledWavePaths).toContain("POST /v1/checkout/sessions/cos-1/expire");
+    expect(calledWavePaths).toContain("POST /v1/payout/pt-1/reverse");
+    await expect(client.searchCheckoutSessions("   ")).rejects.toThrow("non-empty");
+    await expect(client.searchPayouts("   ")).rejects.toThrow("non-empty");
+
+    // Wave webhook uses empty separator between ts and payload and 30s default future skew
     const now = 1700000000;
     const rawBody = Buffer.from('{"id":"ev1"}', "utf8");
     const sig = createHmac("sha256", "whsec_wave")
@@ -349,6 +418,13 @@ describe("Pan-African Providers Integration", () => {
       .update(rawBody)
       .digest("hex");
     client.verifyWebhook(rawBody, `t=${now},v1=${sig}`, { now });
+    const sig45Future = createHmac("sha256", "whsec_wave")
+      .update(`${now + 45}`)
+      .update(rawBody)
+      .digest("hex");
+    expect(() =>
+      client.verifyWebhook(rawBody, `t=${now + 45},v1=${sig45Future}`, { now }),
+    ).toThrow("future");
     expect(() =>
       client.verifyWebhook(rawBody, `t=${now},v1=deadbeef`, { now }),
     ).toThrow(WebhookVerificationError);
