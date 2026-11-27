@@ -87,8 +87,8 @@ export class PaymentRequest {
   public readonly callbackUrl: string | null;
 
   constructor(init: PaymentRequestInit) {
-    this.amount = validateAmount(init.amount);
     this.currency = validateCurrency(init.currency);
+    this.amount = validateAmount(init.amount, { currency: this.currency });
     if (typeof init.payerMsisdn !== "string" || !init.payerMsisdn.trim()) {
       throw new RangeError("payerMsisdn must not be blank");
     }
@@ -150,8 +150,8 @@ export class DisbursementRequest {
   public readonly callbackUrl: string | null;
 
   constructor(init: DisbursementRequestInit) {
-    this.amount = validateAmount(init.amount);
     this.currency = validateCurrency(init.currency);
+    this.amount = validateAmount(init.amount, { currency: this.currency });
     if (typeof init.payeeMsisdn !== "string" || !init.payeeMsisdn.trim()) {
       throw new RangeError("payeeMsisdn must not be blank");
     }

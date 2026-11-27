@@ -326,8 +326,8 @@ export class WaveClient {
   public async createCheckoutSession(
     params: WaveCheckoutParams,
   ): Promise<WaveCheckoutSession> {
-    const amount = validateAmount(params.amount);
     const currency = validateCurrency(params.currency);
+    const amount = validateAmount(params.amount, { currency });
     if (params.successUrl !== undefined && params.successUrl !== null) {
       validateCallbackUrl(params.successUrl);
     }
@@ -371,8 +371,8 @@ export class WaveClient {
   }
 
   public async createPayout(params: WavePayoutParams): Promise<WavePayoutResponse> {
-    const amount = validateAmount(params.amount);
     const currency = validateCurrency(params.currency);
+    const amount = validateAmount(params.amount, { currency });
     const ref = params.clientReference ?? generateReferenceId();
     const payload: Record<string, unknown> = {
       receive_amount: amount,
