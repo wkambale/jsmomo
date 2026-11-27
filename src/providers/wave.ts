@@ -39,7 +39,7 @@ const WAVE_CAPABILITIES = new ProviderCapabilities({
   supportsDisbursement: true,
   supportsBalance: true,
   supportsWebhookHmac: true,
-  currencies: ["XOF", "UGX"],
+  currencies: ["XOF", "UGX", "GMD"],
 });
 
 const VALID_WAVE_ENVIRONMENTS = new Set(["sandbox", "production"]);
@@ -295,6 +295,7 @@ export interface WaveCheckoutParams {
   amount: string;
   currency: string;
   clientReference?: string | null;
+  restrictPayerMobile?: string | null;
   successUrl?: string | null;
   errorUrl?: string | null;
 }
@@ -363,15 +364,23 @@ export class WaveClient {
       );
     }
     const ref = params.clientReference ?? generateReferenceId();
+    const payload: Record<string, unknown> = {
+      amount,
+      currency,
+      success_url: resolvedSuccess,
+      error_url: resolvedError,
+      client_reference: ref,
+    };
+    if (
+      params.restrictPayerMobile !== undefined &&
+      params.restrictPayerMobile !== null
+    ) {
+      payload["restrict_payer_mobile"] =
+        `+${normaliseMsisdn(params.restrictPayerMobile)}`;
+    }
     const response = await this.http.request("POST", "/v1/checkout/sessions", {
       headers: this.headers(ref),
-      json: {
-        amount,
-        currency,
-        success_url: resolvedSuccess,
-        error_url: resolvedError,
-        client_reference: ref,
-      },
+      json: payload,
       idempotent: true,
       referenceId: ref,
     });
@@ -477,8 +486,9 @@ export class WaveProvider implements PaymentProvider {
       amount: request.amount,
       currency: request.currency,
       clientReference: request.referenceId ?? (request.externalId || null),
+      restrictPayerMobile: request.payerMsisdn,
       successUrl: request.callbackUrl,
-      errorUrl: null,
+      errorUrl: this.client.config.errorUrl ? null : request.callbackUrl,
     });
     return new PaymentResult({
       provider: this.name,

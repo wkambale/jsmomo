@@ -220,9 +220,14 @@ describe("Pan-African Providers Integration", () => {
     expect(inspect(cfg)).not.toContain("wave_secret_key");
     expect(cfg.toJSON()["apiKey"]).toBe("<redacted>");
 
+    let capturedWaveCheckoutBody: Record<string, unknown> | null = null;
     const client = new WaveClient(cfg, {
-      fetch: async (url) => {
+      fetch: async (url, init) => {
         if (url.endsWith("/v1/checkout/sessions")) {
+          capturedWaveCheckoutBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
           return jsonResp({
             id: "cos-1",
             amount: "1000",
@@ -268,6 +273,7 @@ describe("Pan-African Providers Integration", () => {
       },
     });
     const wave = new WaveProvider(client);
+    expect(wave.capabilities.currencies).toContain("GMD");
     const col = await wave.collect(
       new PaymentRequest({
         amount: "1000",
@@ -275,7 +281,52 @@ describe("Pan-African Providers Integration", () => {
         payerMsisdn: "+221771234567",
       }),
     );
+    expect(capturedWaveCheckoutBody).toMatchObject({
+      restrict_payer_mobile: "+221771234567",
+      success_url: "https://shop.example.com/ok",
+      error_url: "https://shop.example.com/err",
+    });
     expect(col.checkoutUrl).toBe("https://pay.wave.com/c/cos-1");
+
+    // Issue #39: WaveProvider falls back errorUrl to request.callbackUrl when config.errorUrl is unset
+    let fallbackWaveBody: Record<string, unknown> | null = null;
+    const waveFallback = new WaveProvider(
+      new WaveClient(
+        { apiKey: "wave_secret_key" },
+        {
+          fetch: async (_url, init) => {
+            fallbackWaveBody = JSON.parse(String(init?.body)) as Record<
+              string,
+              unknown
+            >;
+            return jsonResp({
+              id: "cos-2",
+              amount: "500",
+              currency: "GMD",
+              checkout_status: "open",
+              payment_status: "processing",
+              wave_launch_url: "https://pay.wave.com/c/cos-2",
+            });
+          },
+        },
+      ),
+    );
+    await waveFallback.collect(
+      new PaymentRequest({
+        amount: "500",
+        currency: "GMD",
+        payerMsisdn: "2207123456",
+        callbackUrl: "https://shop.example.com/return",
+      }),
+    );
+    expect(fallbackWaveBody).toMatchObject({
+      amount: "500",
+      currency: "GMD",
+      restrict_payer_mobile: "+2207123456",
+      success_url: "https://shop.example.com/return",
+      error_url: "https://shop.example.com/return",
+    });
+    waveFallback.close();
     expect((await wave.getStatus("cos-1")).isSuccessful()).toBe(true);
     const dis = await wave.disburse(
       new DisbursementRequest({
