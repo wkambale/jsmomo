@@ -18,6 +18,7 @@ import {
   validateRetryBackoff,
   validateTimeout,
 } from "../utils.js";
+import { verifyConstantTimeToken } from "./_signatures.js";
 import type {
   PaymentProvider,
   ProviderBalanceOptions,
@@ -51,11 +52,18 @@ export interface OrangePaymentContext {
   readonly orderId: string;
   readonly amount: string;
   readonly currency: string;
+  readonly notifToken?: string | null;
 }
 
-/** Pluggable store mapping Orange Money `pay_token` to `(orderId, amount, currency)`. */
+/** Pluggable store mapping Orange Money `pay_token` to `(orderId, amount, currency, notifToken)`. */
 export interface OrangePaymentContextStore {
-  set(payToken: string, orderId: string, amount: string, currency: string): void;
+  set(
+    payToken: string,
+    orderId: string,
+    amount: string,
+    currency: string,
+    notifToken?: string | null,
+  ): void;
   get(payToken: string): OrangePaymentContext | null;
 }
 
@@ -72,6 +80,7 @@ class InMemoryOrangeContextStore implements OrangePaymentContextStore {
     orderId: string,
     amount: string,
     currency: string,
+    notifToken: string | null = null,
   ): void {
     if (!this.entries.has(payToken) && this.entries.size >= this.maxEntries) {
       const oldestKey = this.entries.keys().next().value;
@@ -79,7 +88,7 @@ class InMemoryOrangeContextStore implements OrangePaymentContextStore {
         this.entries.delete(oldestKey);
       }
     }
-    this.entries.set(payToken, { orderId, amount, currency });
+    this.entries.set(payToken, { orderId, amount, currency, notifToken });
   }
 
   public get(payToken: string): OrangePaymentContext | null {
@@ -443,10 +452,39 @@ export class OrangeMoneyClient {
     );
     const res = parseJsonObject(response, ref);
     const payToken = res["pay_token"];
+    const rawNotifToken = res["notif_token"];
+    const notifToken =
+      typeof rawNotifToken === "string" && rawNotifToken.trim()
+        ? rawNotifToken.trim()
+        : null;
     if (typeof payToken === "string" && payToken.trim()) {
-      this.contextStore.set(payToken.trim(), ref, String(formattedAmount), currency);
+      this.contextStore.set(
+        payToken.trim(),
+        ref,
+        String(formattedAmount),
+        currency,
+        notifToken,
+      );
     }
     return res;
+  }
+
+  /**
+   * Verify an inbound Orange Money `notif_url` callback `notif_token` in constant time
+   * against the stored payment context (or an explicit `expectedNotifToken`).
+   */
+  public verifyNotification(
+    payToken: string,
+    providedNotifToken: string,
+    options: { expectedNotifToken?: string | null } = {},
+  ): OrangePaymentContext | null {
+    const ctx =
+      typeof payToken === "string" && payToken.trim()
+        ? this.contextStore.get(payToken.trim())
+        : null;
+    const expected = options.expectedNotifToken ?? ctx?.notifToken ?? "";
+    verifyConstantTimeToken(providedNotifToken, expected);
+    return ctx;
   }
 
   public async getTransactionStatus(
@@ -572,12 +610,16 @@ export class OrangeMoneyProvider implements PaymentProvider {
       referenceId,
       { currency: resolvedCurrency ?? null },
     );
+    const rawTxnId = res["txnid"];
+    const providerTransactionId =
+      typeof rawTxnId === "string" && rawTxnId.trim() ? rawTxnId.trim() : null;
     return new PaymentResult({
       provider: this.name,
       referenceId,
       status: mapOrangeStatus(String(res["status"] ?? "PENDING")),
       amount: resolvedAmount,
       currency: resolvedCurrency ?? null,
+      providerTransactionId,
       externalId: resolvedOrderId,
       raw: res,
     });

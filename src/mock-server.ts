@@ -550,7 +550,9 @@ export function createMockServer(options: MockServerOptions = {}): {
 
       if (path.startsWith("/orange-money-webpay/") && path.endsWith("/webpayment")) {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
-        const pt = `om-pay-${state.nextId()}`;
+        const idNum = state.nextId();
+        const pt = `om-pay-${idNum}`;
+        const nt = `om-notif-${idNum}`;
         const omStatus =
           state.defaultStatus === "SUCCESSFUL"
             ? "SUCCESS"
@@ -560,9 +562,11 @@ export function createMockServer(options: MockServerOptions = {}): {
         state.putBounded(state.orangeTransactions, pt, {
           status: omStatus,
           order_id: body["order_id"],
+          txnid: `OM-TXN-${idNum}`,
         });
         sendJson(res, 201, {
           pay_token: pt,
+          notif_token: nt,
           payment_url: `https://webpay.orange.com/${pt}`,
         });
         return;
