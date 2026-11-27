@@ -998,11 +998,16 @@ describe("Pan-African Providers Integration", () => {
         if (url.endsWith("/orange-money-webpay/dev/v1/webpayment")) {
           return jsonResp({
             pay_token: "pt-om-1",
+            notif_token: "nt-om-secret-1",
             payment_url: "https://webpayment.orange.com/pay/pt-om-1",
           });
         }
         if (url.endsWith("/orange-money-webpay/dev/v1/transactionstatus")) {
-          return jsonResp({ status: "SUCCESS", order_id: "ord-om-1" });
+          return jsonResp({
+            status: "SUCCESS",
+            order_id: "ord-om-1",
+            txnid: "OM-TXN-2026-1",
+          });
         }
         return jsonResp({}, 404);
       },
@@ -1018,9 +1023,21 @@ describe("Pan-African Providers Integration", () => {
     );
     expect(col.referenceId).toBe("pt-om-1");
     expect(col.checkoutUrl).toBe("https://webpayment.orange.com/pay/pt-om-1");
-    // Context store automatically supplies orderId/amount/currency for status lookup
+    // Context store automatically supplies orderId/amount/currency/notifToken and getStatus populates txnid (Issue #35)
     const st = await orange.getStatus("pt-om-1");
     expect(st.isSuccessful()).toBe(true);
+    expect(st.providerTransactionId).toBe("OM-TXN-2026-1");
+    const verifiedCtx = client.verifyNotification("pt-om-1", "nt-om-secret-1");
+    expect(verifiedCtx?.orderId).toBe("ord-om-1");
+    expect(() => client.verifyNotification("pt-om-1", "wrong-token")).toThrow(
+      WebhookVerificationError,
+    );
+    expect(() => client.verifyNotification("unknown-token", "nt-om-secret-1")).toThrow(
+      WebhookVerificationError,
+    );
+    client.verifyNotification("external-pt", "explicit-nt", {
+      expectedNotifToken: "explicit-nt",
+    });
     await expect(orange.getStatus("unknown-token")).rejects.toThrow("orderId");
     await expect(
       orange.disburse(
