@@ -31,6 +31,8 @@ import {
   WaveClient,
   WaveConfig,
   WaveProvider,
+  parseMpesaB2CCallback,
+  parseMpesaStkCallback,
 } from "../../src/providers/index.js";
 
 function jsonResp(body: unknown, status = 200): Response {
@@ -394,6 +396,135 @@ describe("Pan-African Providers Integration", () => {
     await expect(
       client.stkPush({ amount: "10.50", phoneNumber: "254712345678" }),
     ).rejects.toThrow("whole integer");
+    await expect(
+      client.stkPush({
+        amount: "100",
+        phoneNumber: "254712345678",
+        transactionDesc: "This description is way too long for Daraja",
+      }),
+    ).rejects.toThrow("13 characters");
+
+    // Issue #34: Pending 500.001.1001 maps to PENDING, provider truncates >13-char payerMessage, transactionStatus & callback parsers work
+    let stkQueryCall = 0;
+    let seenTxDesc = "";
+    const realDarajaClient = new MpesaClient(cfg, {
+      fetch: async (url, init) => {
+        if (url.includes("/oauth/v1/generate")) {
+          return jsonResp({ access_token: "mpesa-tok", expires_in: "3599" });
+        }
+        if (url.endsWith("/mpesa/stkpush/v1/processrequest")) {
+          seenTxDesc = JSON.parse(String(init?.body)).TransactionDesc;
+          return jsonResp({
+            MerchantRequestID: "mr-2",
+            CheckoutRequestID: "ws_CO_2",
+            ResponseCode: "0",
+            ResponseDescription: "Success",
+          });
+        }
+        if (url.endsWith("/mpesa/stkpushquery/v1/query")) {
+          stkQueryCall += 1;
+          if (stkQueryCall === 1) {
+            return jsonResp(
+              {
+                requestId: "req-1",
+                errorCode: "500.001.1001",
+                errorMessage: "The transaction is being processed",
+              },
+              500,
+            );
+          }
+          if (stkQueryCall === 2) {
+            return jsonResp(
+              {
+                requestId: "req-2",
+                errorCode: "500.001.1001",
+                errorMessage: "Merchant does not exist",
+              },
+              500,
+            );
+          }
+          return jsonResp({
+            CheckoutRequestID: "ws_CO_2",
+            ResultCode: "0",
+            ResultDesc: "Processed",
+          });
+        }
+        if (url.endsWith("/mpesa/transactionstatus/v1/query")) {
+          return jsonResp({
+            ConversationID: "ts-conv-1",
+            OriginatorConversationID: "ts-orig-1",
+            ResponseCode: "0",
+            ResponseDescription: "Accept the service request successfully.",
+          });
+        }
+        return jsonResp({}, 404);
+      },
+    });
+    const realMpesa = new MpesaProvider(realDarajaClient);
+    await realMpesa.collect(
+      new PaymentRequest({
+        amount: "200",
+        currency: "KES",
+        payerMsisdn: "+254712345678",
+        payerMessage: "Order #1234567890 long message",
+      }),
+    );
+    expect(seenTxDesc.length).toBeLessThanOrEqual(13);
+
+    const pendingRes = await realMpesa.getStatus("ws_CO_2");
+    expect(pendingRes.isPending()).toBe(true);
+    expect(pendingRes.reason).toContain("being processed");
+    // Real non-processing 500.001.1001 still throws
+    await expect(realMpesa.getStatus("ws_CO_2")).rejects.toThrow(
+      "Merchant does not exist",
+    );
+    expect((await realMpesa.getStatus("ws_CO_2")).isSuccessful()).toBe(true);
+
+    const tsRes = await realDarajaClient.transactionStatus({
+      originalConversationId: "orig-1",
+    });
+    expect(tsRes.conversationId).toBe("ts-conv-1");
+
+    const parsedStk = parseMpesaStkCallback({
+      Body: {
+        stkCallback: {
+          MerchantRequestID: "mr-1",
+          CheckoutRequestID: "ws_CO_1",
+          ResultCode: 0,
+          ResultDesc: "The service request is processed successfully.",
+          CallbackMetadata: {
+            Item: [
+              { Name: "Amount", Value: 500 },
+              { Name: "MpesaReceiptNumber", Value: "QWE123RTY" },
+            ],
+          },
+        },
+      },
+    });
+    expect(parsedStk.isSuccessful()).toBe(true);
+    expect(parsedStk.providerTransactionId).toBe("QWE123RTY");
+    expect(parsedStk.amount).toBe("500");
+
+    const parsedB2c = parseMpesaB2CCallback({
+      Result: {
+        ConversationID: "conv-1",
+        OriginatorConversationID: "orig-1",
+        ResultCode: 0,
+        ResultDesc: "Processed successfully",
+        TransactionID: "B2C999",
+        ResultParameters: {
+          ResultParameter: [
+            { Key: "TransactionAmount", Value: 1500 },
+            { Key: "TransactionReceipt", Value: "B2C999" },
+          ],
+        },
+      },
+    });
+    expect(parsedB2c.isSuccessful()).toBe(true);
+    expect(parsedB2c.providerTransactionId).toBe("B2C999");
+    expect(parsedB2c.amount).toBe("1500");
+    expect(() => parseMpesaStkCallback({})).toThrow(WebhookVerificationError);
+    expect(() => parseMpesaB2CCallback({})).toThrow(WebhookVerificationError);
     mpesa.close();
   });
 

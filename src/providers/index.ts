@@ -42,6 +42,10 @@ export {
   type MpesaStkPushParams,
   type MpesaStkPushResponse,
   type MpesaStkQueryResponse,
+  type MpesaTransactionStatusParams,
+  type MpesaTransactionStatusResponse,
+  parseMpesaB2CCallback,
+  parseMpesaStkCallback,
 } from "./mpesa.js";
 export { MtnMomoProvider } from "./mtn.js";
 export {
