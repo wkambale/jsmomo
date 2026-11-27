@@ -43,8 +43,11 @@ const FLUTTERWAVE_CAPABILITIES = new ProviderCapabilities({
   currencies: ["NGN", "GHS", "KES", "UGX", "RWF", "TZS", "ZMW", "XOF", "XAF", "USD"],
 });
 
+const VALID_FLUTTERWAVE_ENVIRONMENTS = new Set(["sandbox", "production"]);
+
 export interface FlutterwaveConfigOptions {
   secretKey: string;
+  environment?: "sandbox" | "production";
   webhookHash?: string | null;
   redirectUrl?: string | null;
   defaultCustomerEmail?: string | null;
@@ -60,6 +63,7 @@ export interface FlutterwaveConfigOptions {
 /** Credentials and settings for Flutterwave v3 API. */
 export class FlutterwaveConfig {
   public readonly secretKey: string;
+  public readonly environment: "sandbox" | "production";
   public readonly webhookHash: string | null;
   public readonly redirectUrl: string | null;
   public readonly defaultCustomerEmail: string | null;
@@ -78,6 +82,20 @@ export class FlutterwaveConfig {
     this.secretKey = validateHeaderValue(options.secretKey, {
       fieldName: "secretKey",
     });
+    const isLiveKey =
+      this.secretKey.startsWith("FLWSECK-") &&
+      !this.secretKey.startsWith("FLWSECK_TEST");
+    const env = options.environment ?? (isLiveKey ? "production" : "sandbox");
+    if (!VALID_FLUTTERWAVE_ENVIRONMENTS.has(env)) {
+      throw new RangeError("environment must be 'sandbox' or 'production'");
+    }
+    if (env === "sandbox" && isLiveKey) {
+      throw new RangeError(
+        "Flutterwave live secretKey ('FLWSECK-*') cannot be used with sandbox environment",
+      );
+    }
+    const allowLocalhost = env === "sandbox";
+    this.environment = env;
     if (options.webhookHash !== undefined && options.webhookHash !== null) {
       if (typeof options.webhookHash !== "string" || !options.webhookHash.trim()) {
         throw new RangeError("webhookHash must not be blank");
@@ -90,7 +108,7 @@ export class FlutterwaveConfig {
     }
     this.redirectUrl =
       options.redirectUrl !== undefined && options.redirectUrl !== null
-        ? validateCallbackUrl(options.redirectUrl)
+        ? validateCallbackUrl(options.redirectUrl, { allowLocalhost })
         : null;
     this.defaultCustomerEmail =
       options.defaultCustomerEmail !== undefined &&
@@ -114,7 +132,9 @@ export class FlutterwaveConfig {
       this.defaultAccountBank = null;
     }
     this.defaultCurrency = validateCurrency(options.defaultCurrency ?? "NGN");
-    this.baseUrl = validateBaseUrl(options.baseUrl ?? FLUTTERWAVE_BASE_URL);
+    this.baseUrl = validateBaseUrl(options.baseUrl ?? FLUTTERWAVE_BASE_URL, {
+      allowLocalhost,
+    });
     this.timeout = validateTimeout(options.timeout ?? 30.0);
     this.maxRetries = validateMaxRetries(options.maxRetries ?? 0);
     this.retryBackoff = validateRetryBackoff(options.retryBackoff ?? 0.5);
@@ -262,6 +282,7 @@ export class FlutterwaveClient {
       telemetry:
         options.telemetry !== undefined ? options.telemetry : this.config.telemetry,
       providerName: "Flutterwave",
+      allowLocalhost: this.config.environment === "sandbox",
     });
   }
 
@@ -284,8 +305,9 @@ export class FlutterwaveClient {
       );
     }
     const email = validateEmailAddress(resolvedEmail);
+    const allowLocalhost = this.config.environment === "sandbox";
     if (params.redirectUrl !== undefined && params.redirectUrl !== null) {
-      validateCallbackUrl(params.redirectUrl);
+      validateCallbackUrl(params.redirectUrl, { allowLocalhost });
     }
     const resolvedRedirect = params.redirectUrl ?? this.config.redirectUrl;
     const ref = params.txRef ?? generateReferenceId();
@@ -333,7 +355,9 @@ export class FlutterwaveClient {
     });
     const accountNumber = validateFlwAccountNumber(params.accountNumber);
     if (params.callbackUrl !== undefined && params.callbackUrl !== null) {
-      validateCallbackUrl(params.callbackUrl);
+      validateCallbackUrl(params.callbackUrl, {
+        allowLocalhost: this.config.environment === "sandbox",
+      });
     }
     const ref = params.reference ?? generateReferenceId();
     const payload: Record<string, unknown> = {

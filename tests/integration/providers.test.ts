@@ -608,6 +608,124 @@ describe("Pan-African Providers Integration", () => {
         accountNumber: "+250781234567",
       }),
     ).rejects.toThrow("zero-decimal");
+
+    // Production / live-key configs reject plaintext localhost URLs (Issue #31)
+    expect(
+      () =>
+        new PaystackConfig({
+          secretKey: "sk_live_secret123",
+          baseUrl: "http://127.0.0.1:8080",
+        }),
+    ).toThrow(JsMomoSDKError);
+    expect(
+      () =>
+        new PaystackConfig({
+          secretKey: "sk_live_secret123",
+          callbackUrl: "http://localhost:3000/cb",
+        }),
+    ).toThrow(RangeError);
+    expect(
+      () =>
+        new PaystackConfig({
+          secretKey: "sk_live_secret123",
+          environment: "sandbox",
+        }),
+    ).toThrow("cannot be used with sandbox");
+    const prodPs = new PaystackClient(
+      { secretKey: "sk_live_secret123" },
+      { fetch: async () => jsonResp({}) },
+    );
+    await expect(
+      prodPs.initializeTransaction({
+        email: "a@b.com",
+        amount: "100",
+        currency: "NGN",
+        callbackUrl: "http://127.0.0.1:8080/cb",
+      }),
+    ).rejects.toThrow(RangeError);
+
+    expect(
+      () =>
+        new FlutterwaveConfig({
+          secretKey: "FLWSECK-livekey-X",
+          baseUrl: "http://127.0.0.1:8080",
+        }),
+    ).toThrow(JsMomoSDKError);
+    expect(
+      () =>
+        new FlutterwaveConfig({
+          secretKey: "FLWSECK-livekey-X",
+          redirectUrl: "http://localhost:3000/cb",
+        }),
+    ).toThrow(RangeError);
+    expect(
+      () =>
+        new FlutterwaveConfig({
+          secretKey: "FLWSECK-livekey-X",
+          environment: "sandbox",
+        }),
+    ).toThrow("cannot be used with sandbox");
+    const prodFlw = new FlutterwaveClient(
+      {
+        secretKey: "FLWSECK-livekey-X",
+        defaultCustomerEmail: "a@b.com",
+        defaultAccountBank: "044",
+      },
+      { fetch: async () => jsonResp({}) },
+    );
+    await expect(
+      prodFlw.createPayment({
+        amount: "100",
+        currency: "NGN",
+        phoneNumber: "+2348012345678",
+        redirectUrl: "http://localhost:3000/ok",
+      }),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      prodFlw.createTransfer({
+        amount: "100",
+        currency: "NGN",
+        accountNumber: "0690000040",
+        callbackUrl: "http://127.0.0.1:3000/cb",
+      }),
+    ).rejects.toThrow(RangeError);
+
+    expect(
+      () =>
+        new WaveConfig({
+          apiKey: "wave_sn_prod_secret123",
+          baseUrl: "http://127.0.0.1:8080",
+        }),
+    ).toThrow(JsMomoSDKError);
+    expect(
+      () =>
+        new WaveConfig({
+          apiKey: "wave_sn_prod_secret123",
+          successUrl: "http://localhost:3000/ok",
+        }),
+    ).toThrow(RangeError);
+    expect(
+      () =>
+        new WaveConfig({
+          apiKey: "wave_sn_prod_secret123",
+          environment: "sandbox",
+        }),
+    ).toThrow("cannot be used with sandbox");
+    const prodWave = new WaveClient(
+      {
+        apiKey: "wave_sn_prod_secret123",
+        successUrl: "https://shop.example.com/ok",
+        errorUrl: "https://shop.example.com/err",
+      },
+      { fetch: async () => jsonResp({}) },
+    );
+    await expect(
+      prodWave.createCheckoutSession({
+        amount: "1000",
+        currency: "XOF",
+        errorUrl: "http://localhost:3000/err",
+      }),
+    ).rejects.toThrow(RangeError);
     flw.close();
   });
 
