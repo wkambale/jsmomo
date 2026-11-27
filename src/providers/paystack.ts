@@ -43,9 +43,11 @@ const PAYSTACK_CAPABILITIES = new ProviderCapabilities({
 });
 
 const PAYSTACK_ZERO_DECIMAL_CURRENCIES = new Set(["XOF", "XAF"]);
+const VALID_PAYSTACK_ENVIRONMENTS = new Set(["sandbox", "production"]);
 
 export interface PaystackConfigOptions {
   secretKey: string;
+  environment?: "sandbox" | "production";
   callbackUrl?: string | null;
   defaultCustomerEmail?: string | null;
   defaultCurrency?: string | null;
@@ -59,6 +61,7 @@ export interface PaystackConfigOptions {
 /** Credentials and settings for Paystack API. */
 export class PaystackConfig {
   public readonly secretKey: string;
+  public readonly environment: "sandbox" | "production";
   public readonly callbackUrl: string | null;
   public readonly defaultCustomerEmail: string | null;
   public readonly defaultCurrency: string | null;
@@ -75,9 +78,21 @@ export class PaystackConfig {
     this.secretKey = validateHeaderValue(options.secretKey.trim(), {
       fieldName: "secretKey",
     });
+    const isLiveKey = this.secretKey.startsWith("sk_live_");
+    const env = options.environment ?? (isLiveKey ? "production" : "sandbox");
+    if (!VALID_PAYSTACK_ENVIRONMENTS.has(env)) {
+      throw new RangeError("environment must be 'sandbox' or 'production'");
+    }
+    if (env === "sandbox" && isLiveKey) {
+      throw new RangeError(
+        "Paystack live secretKey ('sk_live_*') cannot be used with sandbox environment",
+      );
+    }
+    const allowLocalhost = env === "sandbox";
+    this.environment = env;
     this.callbackUrl =
       options.callbackUrl !== undefined && options.callbackUrl !== null
-        ? validateCallbackUrl(options.callbackUrl)
+        ? validateCallbackUrl(options.callbackUrl, { allowLocalhost })
         : null;
     this.defaultCustomerEmail =
       options.defaultCustomerEmail !== undefined &&
@@ -88,7 +103,9 @@ export class PaystackConfig {
       options.defaultCurrency !== undefined && options.defaultCurrency !== null
         ? validateCurrency(options.defaultCurrency)
         : null;
-    this.baseUrl = validateBaseUrl(options.baseUrl ?? PAYSTACK_BASE_URL);
+    this.baseUrl = validateBaseUrl(options.baseUrl ?? PAYSTACK_BASE_URL, {
+      allowLocalhost,
+    });
     this.timeout = validateTimeout(options.timeout ?? 30.0);
     this.maxRetries = validateMaxRetries(options.maxRetries ?? 0);
     this.retryBackoff = validateRetryBackoff(options.retryBackoff ?? 0.5);
@@ -326,6 +343,7 @@ export class PaystackClient {
       telemetry:
         options.telemetry !== undefined ? options.telemetry : this.config.telemetry,
       providerName: "Paystack",
+      allowLocalhost: this.config.environment === "sandbox",
     });
   }
 
@@ -343,7 +361,9 @@ export class PaystackClient {
     const currency = validateCurrency(params.currency);
     const minorAmount = toMinorUnits(params.amount, currency);
     if (params.callbackUrl !== undefined && params.callbackUrl !== null) {
-      validateCallbackUrl(params.callbackUrl);
+      validateCallbackUrl(params.callbackUrl, {
+        allowLocalhost: this.config.environment === "sandbox",
+      });
     }
     const resolvedCb = params.callbackUrl ?? this.config.callbackUrl;
     const ref = validatePaystackReference(params.reference);

@@ -42,8 +42,12 @@ const WAVE_CAPABILITIES = new ProviderCapabilities({
   currencies: ["XOF", "UGX"],
 });
 
+const VALID_WAVE_ENVIRONMENTS = new Set(["sandbox", "production"]);
+const WAVE_PROD_KEY_RE = /^wave_(?:[a-z]{2}_)?prod_/i;
+
 export interface WaveConfigOptions {
   apiKey: string;
+  environment?: "sandbox" | "production";
   webhookSecret?: string | null;
   successUrl?: string | null;
   errorUrl?: string | null;
@@ -57,6 +61,7 @@ export interface WaveConfigOptions {
 /** Credentials and settings for Wave Mobile Money API. */
 export class WaveConfig {
   public readonly apiKey: string;
+  public readonly environment: "sandbox" | "production";
   public readonly webhookSecret: string | null;
   public readonly successUrl: string | null;
   public readonly errorUrl: string | null;
@@ -71,6 +76,18 @@ export class WaveConfig {
       throw new RangeError("apiKey must be a non-empty string");
     }
     this.apiKey = validateHeaderValue(options.apiKey, { fieldName: "apiKey" });
+    const isLiveKey = WAVE_PROD_KEY_RE.test(this.apiKey);
+    const env = options.environment ?? (isLiveKey ? "production" : "sandbox");
+    if (!VALID_WAVE_ENVIRONMENTS.has(env)) {
+      throw new RangeError("environment must be 'sandbox' or 'production'");
+    }
+    if (env === "sandbox" && isLiveKey) {
+      throw new RangeError(
+        "Wave production apiKey ('wave_*_prod_*') cannot be used with sandbox environment",
+      );
+    }
+    const allowLocalhost = env === "sandbox";
+    this.environment = env;
     if (options.webhookSecret !== undefined && options.webhookSecret !== null) {
       if (typeof options.webhookSecret !== "string" || !options.webhookSecret.trim()) {
         throw new RangeError("webhookSecret must not be blank");
@@ -83,13 +100,15 @@ export class WaveConfig {
     }
     this.successUrl =
       options.successUrl !== undefined && options.successUrl !== null
-        ? validateCallbackUrl(options.successUrl)
+        ? validateCallbackUrl(options.successUrl, { allowLocalhost })
         : null;
     this.errorUrl =
       options.errorUrl !== undefined && options.errorUrl !== null
-        ? validateCallbackUrl(options.errorUrl)
+        ? validateCallbackUrl(options.errorUrl, { allowLocalhost })
         : null;
-    this.baseUrl = validateBaseUrl(options.baseUrl ?? WAVE_BASE_URL);
+    this.baseUrl = validateBaseUrl(options.baseUrl ?? WAVE_BASE_URL, {
+      allowLocalhost,
+    });
     this.timeout = validateTimeout(options.timeout ?? 30.0);
     this.maxRetries = validateMaxRetries(options.maxRetries ?? 0);
     this.retryBackoff = validateRetryBackoff(options.retryBackoff ?? 0.5);
@@ -308,6 +327,7 @@ export class WaveClient {
       telemetry:
         options.telemetry !== undefined ? options.telemetry : this.config.telemetry,
       providerName: "Wave",
+      allowLocalhost: this.config.environment === "sandbox",
     });
   }
 
@@ -328,11 +348,12 @@ export class WaveClient {
   ): Promise<WaveCheckoutSession> {
     const currency = validateCurrency(params.currency);
     const amount = validateAmount(params.amount, { currency });
+    const allowLocalhost = this.config.environment === "sandbox";
     if (params.successUrl !== undefined && params.successUrl !== null) {
-      validateCallbackUrl(params.successUrl);
+      validateCallbackUrl(params.successUrl, { allowLocalhost });
     }
     if (params.errorUrl !== undefined && params.errorUrl !== null) {
-      validateCallbackUrl(params.errorUrl);
+      validateCallbackUrl(params.errorUrl, { allowLocalhost });
     }
     const resolvedSuccess = params.successUrl ?? this.config.successUrl;
     const resolvedError = params.errorUrl ?? this.config.errorUrl;
