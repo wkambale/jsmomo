@@ -12,6 +12,7 @@ import {
 import type { TelemetryHook } from "./telemetry.js";
 import {
   validateBaseUrl,
+  validateHeaderValue,
   validateMaxRetries,
   validateRequestPath,
   validateRetryBackoff,
@@ -819,6 +820,42 @@ export class HttpClient {
     path: string,
     options: HttpRequestOptions,
   ): Promise<HttpResponse> {
+    if (typeof method !== "string" || !/^[A-Za-z]+$/.test(method)) {
+      throw new JsMomoSDKError("HTTP method must be a valid ASCII token", {
+        referenceId: options.referenceId ?? null,
+        provider: this.providerName,
+      });
+    }
+    if (
+      !options.headers ||
+      typeof options.headers !== "object" ||
+      Array.isArray(options.headers)
+    ) {
+      throw new JsMomoSDKError("HTTP headers must be a key-value object", {
+        referenceId: options.referenceId ?? null,
+        provider: this.providerName,
+      });
+    }
+    for (const [key, value] of Object.entries(options.headers)) {
+      if (!key || /[\s:]/.test(key)) {
+        throw new JsMomoSDKError("HTTP header name is invalid", {
+          referenceId: options.referenceId ?? null,
+          provider: this.providerName,
+        });
+      }
+      try {
+        validateHeaderValue(key, { fieldName: "header name" });
+        validateHeaderValue(value, { fieldName: key });
+      } catch (err) {
+        throw new JsMomoSDKError(
+          err instanceof Error ? err.message : "Invalid HTTP header",
+          {
+            referenceId: options.referenceId ?? null,
+            provider: this.providerName,
+          },
+        );
+      }
+    }
     validateRequestPath(path);
     const upper = method.toUpperCase();
     const safePath = sanitizeTelemetryPath(path);
