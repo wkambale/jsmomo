@@ -1,4 +1,9 @@
-import { createHmac } from "node:crypto";
+import {
+  constants,
+  createHmac,
+  generateKeyPairSync,
+  privateDecrypt,
+} from "node:crypto";
 import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 
@@ -31,6 +36,7 @@ import {
   WaveClient,
   WaveConfig,
   WaveProvider,
+  encryptMpesaSecurityCredential,
   parseMpesaB2CCallback,
   parseMpesaStkCallback,
 } from "../../src/providers/index.js";
@@ -525,6 +531,57 @@ describe("Pan-African Providers Integration", () => {
     expect(parsedB2c.amount).toBe("1500");
     expect(() => parseMpesaStkCallback({})).toThrow(WebhookVerificationError);
     expect(() => parseMpesaB2CCallback({})).toThrow(WebhookVerificationError);
+
+    // Issue #36: RSA encryption helper & production plaintext SecurityCredential rejection
+    const { publicKey: mpesaPub, privateKey: mpesaPriv } = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    const encSecCred = encryptMpesaSecurityCredential("InitiatorPass123", mpesaPub);
+    const decSecCred = privateDecrypt(
+      { key: mpesaPriv, padding: constants.RSA_PKCS1_PADDING },
+      Buffer.from(encSecCred, "base64"),
+    ).toString("utf8");
+    expect(decSecCred).toBe("InitiatorPass123");
+
+    const prodMpesaCfg = new MpesaConfig({
+      consumerKey: "ck",
+      consumerSecret: "cs",
+      shortCode: "174379",
+      passkey: "pk",
+      environment: "production",
+      securityCredential: encSecCred,
+    });
+    expect(prodMpesaCfg.securityCredential).toBe(encSecCred);
+
+    expect(
+      () =>
+        new MpesaConfig({
+          consumerKey: "ck",
+          consumerSecret: "cs",
+          shortCode: "174379",
+          passkey: "pk",
+          environment: "production",
+          securityCredential: "plaintext-password",
+        }),
+    ).toThrow("RSA-encrypted Base64");
+    expect(
+      () =>
+        new MpesaConfig({
+          consumerKey: "ck",
+          consumerSecret: "cs",
+          shortCode: "174379",
+          passkey: "pk",
+          environment: "production",
+          securityCredential: Buffer.from("short").toString("base64"),
+        }),
+    ).toThrow("too short");
+    const { publicKey: ecPub } = generateKeyPairSync("ed25519", {
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" },
+    });
+    expect(() => encryptMpesaSecurityCredential("pass", ecPub)).toThrow(TypeError);
     mpesa.close();
   });
 

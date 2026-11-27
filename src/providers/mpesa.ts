@@ -1,3 +1,4 @@
+import { constants, createPublicKey, publicEncrypt } from "node:crypto";
 import { inspect } from "node:util";
 
 import { TokenCache } from "../auth.js";
@@ -59,6 +60,55 @@ const VALID_MPESA_COMMAND_IDS = new Set([
 const MAX_MPESA_ACCOUNT_REFERENCE_LEN = 12;
 const MAX_MPESA_TRANSACTION_DESC_LEN = 13;
 const VALID_MPESA_IDENTIFIER_TYPES = new Set(["1", "2", "4"]);
+const STRICT_BASE64_RE =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+function validateEncryptedSecurityCredential(credential: string): void {
+  const stripped = credential.trim();
+  if (!stripped || stripped.length % 4 !== 0 || !STRICT_BASE64_RE.test(stripped)) {
+    throw new RangeError(
+      "M-Pesa production requires an RSA-encrypted Base64 securityCredential; use encryptMpesaSecurityCredential() rather than a plaintext password",
+    );
+  }
+  const decoded = Buffer.from(stripped, "base64");
+  if (decoded.byteLength < 64) {
+    throw new RangeError(
+      "M-Pesa production securityCredential ciphertext is too short; expected RSA-encrypted Base64 ciphertext",
+    );
+  }
+}
+
+/**
+ * Encrypt a Safaricom M-Pesa Daraja initiator password with Safaricom's X.509
+ * certificate or RSA public key PEM using PKCS#1 v1.5 (`RSA_PKCS1_PADDING`).
+ */
+export function encryptMpesaSecurityCredential(
+  initiatorPassword: string,
+  certificateOrPublicKeyPem: string,
+): string {
+  if (typeof initiatorPassword !== "string" || !initiatorPassword.trim()) {
+    throw new RangeError("initiatorPassword must be a non-empty string");
+  }
+  validateHeaderValue(initiatorPassword, { fieldName: "initiatorPassword" });
+  if (
+    typeof certificateOrPublicKeyPem !== "string" ||
+    !certificateOrPublicKeyPem.trim()
+  ) {
+    throw new RangeError("certificateOrPublicKeyPem must be a non-empty PEM string");
+  }
+  const keyObj = createPublicKey(certificateOrPublicKeyPem);
+  if (keyObj.asymmetricKeyType !== "rsa") {
+    throw new TypeError("certificateOrPublicKeyPem must contain an RSA public key");
+  }
+  const ciphertext = publicEncrypt(
+    {
+      key: keyObj,
+      padding: constants.RSA_PKCS1_PADDING,
+    },
+    Buffer.from(initiatorPassword, "utf8"),
+  );
+  return ciphertext.toString("base64");
+}
 
 function toMpesaIntAmount(amount: string): number {
   const validated = validateAmount(amount);
@@ -234,6 +284,9 @@ export class MpesaConfig {
       secCred = validateHeaderValue(options.securityCredential, {
         fieldName: "securityCredential",
       });
+      if (env === "production") {
+        validateEncryptedSecurityCredential(secCred);
+      }
     }
 
     this.consumerKey = options.consumerKey;
