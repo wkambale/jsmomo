@@ -119,6 +119,7 @@ export {
   type MpesaStkQueryResponse,
   type MpesaTransactionStatusParams,
   type MpesaTransactionStatusResponse,
+  encryptMpesaSecurityCredential,
   parseMpesaB2CCallback,
   parseMpesaStkCallback,
   MtnMomoProvider,
