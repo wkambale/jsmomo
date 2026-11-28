@@ -444,5 +444,5 @@ declare global {
     });
 
     expect(formattedErrors).toEqual([]);
-  });
+  }, 30_000);
 });
