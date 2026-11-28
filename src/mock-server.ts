@@ -715,9 +715,21 @@ export function createMockServer(options: MockServerOptions = {}): {
         return;
       }
 
-      if (path === "/v3/payments" || path === "/v3/transfers") {
+      if (
+        path === "/v3/payments" ||
+        path === "/v3/transfers" ||
+        path === "/v3/charges"
+      ) {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
-        const ref = String(body["tx_ref"] ?? body["reference"] ?? "flw-mock-ref");
+        if (path === "/v3/transfers" && typeof body["amount"] !== "number") {
+          sendJson(res, 400, {
+            status: "error",
+            message: "amount must be a numeric value for Flutterwave transfers",
+          });
+          return;
+        }
+        const idNum = state.nextId();
+        const ref = String(body["tx_ref"] ?? body["reference"] ?? `flw-mock-${idNum}`);
         const flwStatus =
           state.defaultStatus === "SUCCESSFUL"
             ? "successful"
@@ -727,16 +739,44 @@ export function createMockServer(options: MockServerOptions = {}): {
         const entry = {
           status: "success",
           data: {
-            id: ref,
+            id: idNum,
+            tx_ref: ref,
             reference: ref,
             status: flwStatus,
-            amount: body["amount"] ?? "100",
+            amount: body["amount"] ?? 100,
             currency: body["currency"] ?? "NGN",
             link: `https://checkout.flutterwave.com/${ref}`,
           },
         };
         state.putBounded(state.flutterwaveTransactions, ref, entry);
+        state.putBounded(state.flutterwaveTransactions, String(idNum), entry);
         sendJson(res, 200, entry);
+        return;
+      }
+
+      if (path.startsWith("/v3/transactions/") && path.endsWith("/refund")) {
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const idSeg = decodeURIComponent(
+          path.slice("/v3/transactions/".length, -"/refund".length),
+        );
+        const tx = state.flutterwaveTransactions.get(idSeg);
+        if (!tx) {
+          sendJson(res, 404, { status: "error", message: "Transaction not found" });
+          return;
+        }
+        sendJson(res, 200, {
+          status: "success",
+          message: "Transaction refund initiated",
+          data: {
+            id: state.nextId(),
+            tx_id: idSeg,
+            amount_refunded:
+              body["amount"] ??
+              (tx["data"] as Record<string, unknown> | undefined)?.["amount"] ??
+              100,
+            status: "completed",
+          },
+        });
         return;
       }
 
@@ -977,6 +1017,27 @@ export function createMockServer(options: MockServerOptions = {}): {
           return;
         }
         sendJson(res, 200, tx);
+        return;
+      }
+      if (path.startsWith("/v3/transactions/") && path.endsWith("/verify")) {
+        const idSeg = decodeURIComponent(
+          path.slice("/v3/transactions/".length, -"/verify".length),
+        );
+        const tx = state.flutterwaveTransactions.get(idSeg);
+        if (!tx) {
+          sendJson(res, 404, { message: "Not found" });
+          return;
+        }
+        sendJson(res, 200, tx);
+        return;
+      }
+      if (path === "/v3/transfers") {
+        const ref = parsedUrl.searchParams.get("reference") ?? "";
+        const tx = ref ? state.flutterwaveTransactions.get(ref) : undefined;
+        sendJson(res, 200, {
+          status: "success",
+          data: tx ? [tx["data"]] : [],
+        });
         return;
       }
       const flwTr = extractSingleSuffix(path, "/v3/transfers/");

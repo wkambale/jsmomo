@@ -11,8 +11,10 @@ export {
   type FlutterwaveClientOptions,
   FlutterwaveConfig,
   type FlutterwaveConfigOptions,
+  type FlutterwaveMobileMoneyChargeParams,
   type FlutterwavePaymentParams,
   FlutterwaveProvider,
+  type FlutterwaveRefundOptions,
   type FlutterwaveTransferParams,
 } from "./flutterwave.js";
 export {

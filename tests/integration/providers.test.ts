@@ -1097,9 +1097,19 @@ describe("Pan-African Providers Integration", () => {
       country: "cote d'ivoire",
       currency: "XOF",
       type: "mobile_money",
+      payWithBank: false,
+      useCursor: true,
       perPage: 50,
     });
     expect((banksRes["data"] as unknown[]).length).toBe(1);
+    await expect(client.listBanks({ perPage: 0 })).rejects.toThrow("between 1 and 100");
+    await client.createRefund({ transaction: 12345 });
+    await expect(client.createRefund({ transaction: 0 })).rejects.toThrow(
+      "positive integer",
+    );
+    await expect(client.createRefund({ transaction: "   " })).rejects.toThrow(
+      "non-empty",
+    );
 
     const refundRes = await client.createRefund({
       transaction: "ps-ref-1",
@@ -1168,12 +1178,44 @@ describe("Pan-African Providers Integration", () => {
     expect(inspect(cfg)).not.toContain("FLWSECK_TEST-123");
 
     let capturedFlwTransferBody: Record<string, unknown> | null = null;
+    let capturedFlwChargeBody: Record<string, unknown> | null = null;
+    let capturedFlwRefundBody: Record<string, unknown> | null = null;
     const client = new FlutterwaveClient(cfg, {
       fetch: async (url, init) => {
         if (url.endsWith("/v3/payments")) {
           return jsonResp({
             status: "success",
             data: { link: "https://checkout.flutterwave.com/pay/1" },
+          });
+        }
+        if (url.includes("/v3/charges?type=")) {
+          capturedFlwChargeBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          return jsonResp({
+            status: "success",
+            data: {
+              id: 901,
+              tx_ref: capturedFlwChargeBody["tx_ref"],
+              status: "pending",
+            },
+          });
+        }
+        if (url.endsWith("/v3/transactions/901/verify")) {
+          return jsonResp({
+            status: "success",
+            data: { id: 901, status: "successful", amount: 2500, currency: "UGX" },
+          });
+        }
+        if (url.endsWith("/v3/transactions/901/refund")) {
+          capturedFlwRefundBody = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          return jsonResp({
+            status: "success",
+            data: { id: 301, status: "completed", amount_refunded: 1000 },
           });
         }
         if (url.includes("/v3/transactions/verify_by_reference")) {
@@ -1186,6 +1228,24 @@ describe("Pan-African Providers Integration", () => {
               currency: "NGN",
               processor_response: "Approved",
             },
+          });
+        }
+        if (url.includes("/v3/transfers?reference=")) {
+          const refParam = new URL(url).searchParams.get("reference");
+          return jsonResp({
+            status: "success",
+            data:
+              refParam === "flw-tr-1"
+                ? [
+                    {
+                      id: 777,
+                      reference: "flw-tr-1",
+                      status: "SUCCESSFUL",
+                      amount: 500,
+                      currency: "NGN",
+                    },
+                  ]
+                : [],
           });
         }
         if (url.endsWith("/v3/transfers")) {
@@ -1236,29 +1296,106 @@ describe("Pan-African Providers Integration", () => {
     expect((await flw.getStatus("777", { kind: "disbursement" })).isSuccessful()).toBe(
       true,
     );
-    // Issue #38: Mobile money transfer supports beneficiary_name, debit_currency, and meta
+    // Issue #91: Reconciling disbursement status by merchant reference (non-numeric ID)
+    expect(
+      (await flw.getStatus("flw-tr-1", { kind: "disbursement" })).isSuccessful(),
+    ).toBe(true);
+    await expect(
+      flw.getStatus("missing-tr-ref", { kind: "disbursement" }),
+    ).rejects.toThrow("not found");
+
+    // Issue #38 & #91: numeric amount, Francophone UTF-8 beneficiary_name, destination_branch_code, chargeMobileMoney, verifyTransaction, createRefund
     await client.createTransfer({
       amount: "1200",
-      currency: "KES",
-      accountBank: "MPS",
-      accountNumber: "254712345678",
-      beneficiaryName: "Akinyi Kimwei",
+      currency: "XOF",
+      accountBank: "FMM",
+      destinationBranchCode: "SN-DKR-01",
+      accountNumber: "221771234567",
+      beneficiaryName: "Mamadou Koné",
       debitCurrency: "NGN",
       meta: [
         {
           sender: "Acme Corp",
-          sender_country: "KE",
-          mobile_number: "254712345678",
+          sender_country: "SN",
+          mobile_number: "221771234567",
         },
       ],
     });
     expect(capturedFlwTransferBody).toMatchObject({
-      account_bank: "MPS",
-      beneficiary_name: "Akinyi Kimwei",
+      account_bank: "FMM",
+      destination_branch_code: "SN-DKR-01",
+      amount: 1200,
+      beneficiary_name: "Mamadou Koné",
       debit_currency: "NGN",
       meta: [
-        { sender: "Acme Corp", sender_country: "KE", mobile_number: "254712345678" },
+        { sender: "Acme Corp", sender_country: "SN", mobile_number: "221771234567" },
       ],
+    });
+    const momoCharge = await client.chargeMobileMoney({
+      amount: "2500",
+      currency: "UGX",
+      phoneNumber: "+256771234567",
+      network: "mtn",
+      country: "ug",
+      voucher: "VOUCH123",
+      redirectUrl: "https://shop.example.com/flw-done",
+      meta: { order: "901" },
+      fullname: "Mamadou Koné",
+    });
+    expect((momoCharge["data"] as Record<string, unknown>)["id"]).toBe(901);
+    expect(capturedFlwChargeBody).toMatchObject({
+      amount: 2500,
+      currency: "UGX",
+      phone_number: "256771234567",
+      network: "MTN",
+      country: "UG",
+      voucher: "VOUCH123",
+      redirect_url: "https://shop.example.com/flw-done",
+      meta: { order: "901" },
+      fullname: "Mamadou Koné",
+    });
+    await expect(
+      client.chargeMobileMoney({
+        amount: "50",
+        currency: "NGN",
+        phoneNumber: "+2348012345678",
+      }),
+    ).rejects.toThrow("type is required");
+    const flwNoEmail = new FlutterwaveClient(
+      { secretKey: "FLWSECK_TEST-1" },
+      { fetch: async () => jsonResp({}) },
+    );
+    await expect(
+      flwNoEmail.chargeMobileMoney({
+        amount: "1000",
+        currency: "UGX",
+        phoneNumber: "+256771234567",
+      }),
+    ).rejects.toThrow("email");
+    await expect(flwNoEmail.verifyTransaction(0)).rejects.toThrow("positive integer");
+    await expect(flwNoEmail.verifyTransaction("   ")).rejects.toThrow("non-empty");
+    await expect(
+      client.createTransfer({
+        amount: "1200",
+        currency: "XOF",
+        accountBank: "FMM",
+        destinationBranchCode: "   ",
+        accountNumber: "221771234567",
+      }),
+    ).rejects.toThrow("destinationBranchCode");
+    expect(
+      ((await client.verifyTransaction("901"))["data"] as Record<string, unknown>)[
+        "status"
+      ],
+    ).toBe("successful");
+    await client.createRefund(901, {
+      amount: "1000",
+      currency: "UGX",
+      comments: "Partial refund",
+    });
+    expect(capturedFlwRefundBody).toEqual({
+      amount: 1000,
+      comments: "Partial refund",
     });
     await expect(
       client.createTransfer({

@@ -1,6 +1,6 @@
 import { inspect } from "node:util";
 
-import { JsMomoSDKError } from "../exceptions.js";
+import { JsMomoSDKError, ResourceNotFoundError } from "../exceptions.js";
 import type { FetchLike } from "../http.js";
 import { DEFAULT_MAX_RESPONSE_BYTES, HttpClient, parseJsonObject } from "../http.js";
 import type { TelemetryHook } from "../telemetry.js";
@@ -11,10 +11,12 @@ import {
   validateAmount,
   validateBaseUrl,
   validateCallbackUrl,
+  validateCountryCode,
   validateCurrency,
   validateEmailAddress,
   validateHeaderValue,
   validateMaxRetries,
+  validatePrintableText,
   validateRetryBackoff,
   validateTimeout,
 } from "../utils.js";
@@ -44,6 +46,42 @@ const FLUTTERWAVE_CAPABILITIES = new ProviderCapabilities({
 });
 
 const VALID_FLUTTERWAVE_ENVIRONMENTS = new Set(["sandbox", "production"]);
+const DEFAULT_FLW_MOMO_TYPE_BY_CURRENCY: Readonly<Record<string, string>> = {
+  KES: "mpesa",
+  UGX: "mobile_money_uganda",
+  GHS: "mobile_money_ghana",
+  RWF: "mobile_money_rwanda",
+  ZMW: "mobile_money_zambia",
+  TZS: "mobile_money_tanzania",
+  XOF: "mobile_money_franco",
+  XAF: "mobile_money_franco",
+};
+
+function toFlutterwaveNumericAmount(amount: string, currency?: string | null): number {
+  const validated = validateAmount(amount, { currency: currency ?? null });
+  const num = Number(validated);
+  if (!Number.isFinite(num) || !Number.isSafeInteger(Math.round(num * 100))) {
+    throw new RangeError("Flutterwave amount exceeds safe numeric precision");
+  }
+  return num;
+}
+
+function validateFlutterwaveTransactionId(transactionId: string | number): string {
+  if (typeof transactionId === "number") {
+    if (!Number.isSafeInteger(transactionId) || transactionId <= 0) {
+      throw new RangeError("transactionId must be a positive integer");
+    }
+    return String(transactionId);
+  }
+  if (typeof transactionId === "string" && transactionId.trim()) {
+    const cleaned = validateHeaderValue(transactionId.trim(), {
+      fieldName: "transactionId",
+      allowWhitespace: false,
+    });
+    return encodePathSegment(cleaned, "transactionId");
+  }
+  throw new RangeError("transactionId must be a positive integer or non-empty string");
+}
 
 export interface FlutterwaveConfigOptions {
   secretKey: string;
@@ -251,11 +289,33 @@ export interface FlutterwavePaymentParams {
   redirectUrl?: string | null;
 }
 
+export interface FlutterwaveMobileMoneyChargeParams {
+  amount: string;
+  currency: string;
+  phoneNumber: string;
+  email?: string | null;
+  type?: string | null;
+  network?: string | null;
+  country?: string | null;
+  fullname?: string | null;
+  voucher?: string | null;
+  txRef?: string | null;
+  redirectUrl?: string | null;
+  meta?: Record<string, unknown> | null;
+}
+
+export interface FlutterwaveRefundOptions {
+  amount?: string | null;
+  currency?: string | null;
+  comments?: string | null;
+}
+
 export interface FlutterwaveTransferParams {
   amount: string;
   currency: string;
   accountNumber: string;
   accountBank?: string | null;
+  destinationBranchCode?: string | null;
   beneficiaryName?: string | null;
   debitCurrency?: string | null;
   meta?: Record<string, unknown> | readonly Record<string, unknown>[] | null;
@@ -332,6 +392,134 @@ export class FlutterwaveClient {
     return parseJsonObject(response, ref);
   }
 
+  /**
+   * Initiate a direct server-to-server Flutterwave mobile money push charge
+   * (`POST /v3/charges?type=mobile_money_*` or `mpesa`).
+   */
+  public async chargeMobileMoney(
+    params: FlutterwaveMobileMoneyChargeParams,
+  ): Promise<Record<string, unknown>> {
+    const currency = validateCurrency(params.currency);
+    const numericAmount = toFlutterwaveNumericAmount(params.amount, currency);
+    const resolvedEmail = params.email ?? this.config.defaultCustomerEmail;
+    if (!resolvedEmail) {
+      throw new RangeError(
+        "email or FlutterwaveConfig.defaultCustomerEmail is required for Flutterwave mobile money charges",
+      );
+    }
+    const email = validateEmailAddress(resolvedEmail);
+    const rawType = params.type ?? DEFAULT_FLW_MOMO_TYPE_BY_CURRENCY[currency];
+    if (!rawType || typeof rawType !== "string" || !rawType.trim()) {
+      throw new RangeError(
+        `type is required for Flutterwave mobile money charge with currency '${currency}'`,
+      );
+    }
+    const chargeType = validateHeaderValue(rawType.trim(), {
+      fieldName: "type",
+      allowWhitespace: false,
+    });
+    const allowLocalhost = this.config.environment === "sandbox";
+    if (params.redirectUrl !== undefined && params.redirectUrl !== null) {
+      validateCallbackUrl(params.redirectUrl, { allowLocalhost });
+    }
+    const resolvedRedirect = params.redirectUrl ?? this.config.redirectUrl;
+    const ref = params.txRef ?? generateReferenceId();
+    validateHeaderValue(ref, { fieldName: "txRef", allowWhitespace: false });
+    const cleanMsisdn = normaliseMsisdn(params.phoneNumber);
+    const payload: Record<string, unknown> = {
+      tx_ref: ref,
+      amount: numericAmount,
+      currency,
+      email,
+      phone_number: cleanMsisdn,
+    };
+    if (params.network !== undefined && params.network !== null) {
+      payload["network"] = validateHeaderValue(params.network.trim().toUpperCase(), {
+        fieldName: "network",
+        allowWhitespace: false,
+      });
+    }
+    if (params.country !== undefined && params.country !== null) {
+      payload["country"] = validateCountryCode(params.country);
+    }
+    if (params.fullname !== undefined && params.fullname !== null) {
+      payload["fullname"] = validatePrintableText(params.fullname, {
+        fieldName: "fullname",
+      });
+    }
+    if (params.voucher !== undefined && params.voucher !== null) {
+      payload["voucher"] = validateHeaderValue(params.voucher.trim(), {
+        fieldName: "voucher",
+        allowWhitespace: false,
+      });
+    }
+    if (resolvedRedirect !== null) {
+      payload["redirect_url"] = resolvedRedirect;
+    }
+    if (params.meta !== undefined && params.meta !== null) {
+      if (typeof params.meta !== "object" || Array.isArray(params.meta)) {
+        throw new RangeError("meta must be a JSON object");
+      }
+      payload["meta"] = params.meta;
+    }
+    const response = await this.http.request(
+      "POST",
+      `/v3/charges?type=${encodeURIComponent(chargeType)}`,
+      {
+        headers: this.headers(),
+        json: payload,
+        referenceId: ref,
+      },
+    );
+    return parseJsonObject(response, ref);
+  }
+
+  /** Verify a Flutterwave transaction by its numeric ID (`GET /v3/transactions/{id}/verify`). */
+  public async verifyTransaction(
+    transactionId: string | number,
+  ): Promise<Record<string, unknown>> {
+    const encoded = validateFlutterwaveTransactionId(transactionId);
+    const refId = String(transactionId);
+    const response = await this.http.request(
+      "GET",
+      `/v3/transactions/${encoded}/verify`,
+      { headers: this.headers(), referenceId: refId },
+    );
+    return parseJsonObject(response, refId);
+  }
+
+  /** Initiate a full or partial refund for a Flutterwave transaction (`POST /v3/transactions/{id}/refund`). */
+  public async createRefund(
+    transactionId: string | number,
+    options: FlutterwaveRefundOptions = {},
+  ): Promise<Record<string, unknown>> {
+    const encoded = validateFlutterwaveTransactionId(transactionId);
+    const refId = String(transactionId);
+    const payload: Record<string, unknown> = {};
+    if (options.amount !== undefined && options.amount !== null) {
+      const ccy =
+        options.currency !== undefined && options.currency !== null
+          ? validateCurrency(options.currency)
+          : null;
+      payload["amount"] = toFlutterwaveNumericAmount(options.amount, ccy);
+    }
+    if (options.comments !== undefined && options.comments !== null) {
+      payload["comments"] = validatePrintableText(options.comments, {
+        fieldName: "comments",
+      });
+    }
+    const response = await this.http.request(
+      "POST",
+      `/v3/transactions/${encoded}/refund`,
+      {
+        headers: this.headers(),
+        json: payload,
+        referenceId: refId,
+      },
+    );
+    return parseJsonObject(response, refId);
+  }
+
   public async verifyByReference(txRef: string): Promise<Record<string, unknown>> {
     const encoded = encodeFlwQueryRef(txRef);
     const response = await this.http.request(
@@ -346,7 +534,7 @@ export class FlutterwaveClient {
     params: FlutterwaveTransferParams,
   ): Promise<Record<string, unknown>> {
     const currency = validateCurrency(params.currency);
-    const amount = validateAmount(params.amount, { currency });
+    const numericAmount = toFlutterwaveNumericAmount(params.amount, currency);
     const resolvedBank = params.accountBank ?? this.config.defaultAccountBank;
     if (!resolvedBank || !resolvedBank.trim()) {
       throw new RangeError(
@@ -366,19 +554,28 @@ export class FlutterwaveClient {
     const payload: Record<string, unknown> = {
       account_bank: accountBank,
       account_number: accountNumber,
-      amount,
+      amount: numericAmount,
       currency,
       narration: params.narration ?? "Payout",
       reference: ref,
     };
-    if (params.beneficiaryName !== undefined && params.beneficiaryName !== null) {
+    if (
+      params.destinationBranchCode !== undefined &&
+      params.destinationBranchCode !== null
+    ) {
       if (
-        typeof params.beneficiaryName !== "string" ||
-        !params.beneficiaryName.trim()
+        typeof params.destinationBranchCode !== "string" ||
+        !params.destinationBranchCode.trim()
       ) {
-        throw new RangeError("beneficiaryName must not be blank");
+        throw new RangeError("destinationBranchCode must not be blank");
       }
-      payload["beneficiary_name"] = validateHeaderValue(params.beneficiaryName.trim(), {
+      payload["destination_branch_code"] = validateHeaderValue(
+        params.destinationBranchCode.trim(),
+        { fieldName: "destinationBranchCode", allowWhitespace: false },
+      );
+    }
+    if (params.beneficiaryName !== undefined && params.beneficiaryName !== null) {
+      payload["beneficiary_name"] = validatePrintableText(params.beneficiaryName, {
         fieldName: "beneficiaryName",
       });
     }
@@ -409,6 +606,49 @@ export class FlutterwaveClient {
       referenceId: transferId,
     });
     return parseJsonObject(response, transferId);
+  }
+
+  /** Reconcile a Flutterwave transfer by its merchant `reference` (`GET /v3/transfers?reference=...`). */
+  public async getTransferByReference(
+    reference: string,
+  ): Promise<Record<string, unknown>> {
+    const encoded = encodeFlwQueryRef(reference);
+    const cleaned = reference.trim();
+    const response = await this.http.request(
+      "GET",
+      `/v3/transfers?reference=${encoded}`,
+      {
+        headers: this.headers(),
+        referenceId: cleaned,
+      },
+    );
+    const raw = parseJsonObject(response, cleaned);
+    if (
+      String(raw["status"] ?? "")
+        .trim()
+        .toLowerCase() === "error"
+    ) {
+      unwrapFlwData(raw, cleaned);
+    }
+    const data = raw["data"];
+    if (Array.isArray(data)) {
+      const matched =
+        data.find(
+          (item) =>
+            item &&
+            typeof item === "object" &&
+            !Array.isArray(item) &&
+            (item as Record<string, unknown>)["reference"] === cleaned,
+        ) ?? data[0];
+      if (!matched || typeof matched !== "object" || Array.isArray(matched)) {
+        throw new ResourceNotFoundError(
+          `Flutterwave transfer with reference '${cleaned}' not found`,
+          { referenceId: cleaned, statusCode: 404, provider: "Flutterwave" },
+        );
+      }
+      return { ...raw, data: matched };
+    }
+    return raw;
   }
 
   public async getBalance(currency?: string | null): Promise<Record<string, unknown>> {
@@ -492,7 +732,9 @@ export class FlutterwaveProvider implements PaymentProvider {
     const kind = validateOperationKind(options.kind ?? "collection");
     const res =
       kind === "disbursement"
-        ? await this.client.getTransfer(referenceId)
+        ? /^\d+$/.test(referenceId.trim())
+          ? await this.client.getTransfer(referenceId)
+          : await this.client.getTransferByReference(referenceId)
         : await this.client.verifyByReference(referenceId);
     const data = unwrapFlwData(res, referenceId);
     const amount =

@@ -403,6 +403,65 @@ describe("Local Mock Gateway Server", () => {
         "available_balance"
       ],
     ).toBe(10000);
+    const flwCharge = await flw.chargeMobileMoney({
+      amount: "1500",
+      currency: "UGX",
+      phoneNumber: "256771234567",
+      txRef: "flw-momo-mock-1",
+    });
+    const flwTxId = Number((flwCharge["data"] as Record<string, unknown>)["id"]);
+    expect(
+      ((await flw.verifyTransaction(flwTxId))["data"] as Record<string, unknown>)[
+        "status"
+      ],
+    ).toBe("successful");
+    expect((await flw.createRefund(flwTxId, { amount: "500" }))["status"]).toBe(
+      "success",
+    );
+    await flw.createTransfer({
+      amount: "500",
+      currency: "NGN",
+      accountNumber: "0690000040",
+      reference: "flw-tr-mock-1",
+    });
+    expect(
+      (
+        (await flw.getTransferByReference("flw-tr-mock-1"))["data"] as Record<
+          string,
+          unknown
+        >
+      )["status"],
+    ).toBe("successful");
+    expect(
+      (
+        await fetch(`${mock.url}/v3/transfers`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reference: "bad-amt", amount: "10" }),
+        })
+      ).status,
+    ).toBe(400);
+    expect((await fetch(`${mock.url}/v3/transactions/missing/verify`)).status).toBe(
+      404,
+    );
+    expect(
+      (
+        await fetch(`${mock.url}/v3/transactions/missing/refund`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await fetch(`${mock.url}/refund`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        })
+      ).status,
+    ).toBe(400);
 
     // 7. Orange Money
     const om = new OrangeMoneyClient({
@@ -553,7 +612,7 @@ describe("Local Mock Gateway Server", () => {
     try {
       await fetch(`${pendingSrv.url}/v3/transfers`, {
         method: "POST",
-        body: JSON.stringify({ reference: "flw-p1", amount: "10", currency: "NGN" }),
+        body: JSON.stringify({ reference: "flw-p1", amount: 10, currency: "NGN" }),
       });
       const flwGet = (await (
         await fetch(`${pendingSrv.url}/v3/transfers/flw-p1`)
