@@ -70,6 +70,12 @@ printf '{"status":"SUCCESSFUL"}' | npx js-momo-sdk webhook verify \
   --signature "<hex-digest>" \
   --secret-file ./webhook-secret.txt
 
+# Base64 HMAC-SHA256 (e.g. Airtel Money x-signature)
+printf '{"status":"TS"}' | npx js-momo-sdk webhook verify \
+  --signature "<base64-digest>" \
+  --encoding base64 \
+  --secret-file ./airtel-webhook-secret.txt
+
 # Timestamped Wave signature (empty separator)
 printf '{"id":"ev1"}' | npx js-momo-sdk webhook verify \
   --signature "t=1700000000,v1=<hex>" \
