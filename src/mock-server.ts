@@ -416,6 +416,14 @@ export function createMockServer(options: MockServerOptions = {}): {
 
       if (path === "/v1/checkout/sessions") {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const clientRef = body["client_reference"];
+        if (typeof clientRef === "string" && clientRef.length > 255) {
+          sendJson(res, 400, {
+            code: "request-validation-error",
+            message: "client_reference must not exceed 255 characters",
+          });
+          return;
+        }
         const sid = `cos-${state.nextId()}`;
         const session = {
           id: sid,
@@ -424,7 +432,8 @@ export function createMockServer(options: MockServerOptions = {}): {
           checkout_status: "open",
           payment_status: waveStatus(),
           wave_launch_url: `https://pay.wave.com/c/${sid}`,
-          client_reference: body["client_reference"] ?? null,
+          client_reference: clientRef ?? null,
+          aggregated_merchant_id: body["aggregated_merchant_id"] ?? null,
         };
         state.putBounded(state.waveSessions, sid, session);
         sendJson(res, 200, session);
@@ -433,13 +442,25 @@ export function createMockServer(options: MockServerOptions = {}): {
 
       if (path === "/v1/payout") {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const clientRef = body["client_reference"];
+        const reason = body["payment_reason"];
+        if (
+          (typeof clientRef === "string" && clientRef.length > 255) ||
+          (typeof reason === "string" && reason.length > 40)
+        ) {
+          sendJson(res, 400, {
+            code: "request-validation-error",
+            message: "client_reference <= 255 and payment_reason <= 40 required",
+          });
+          return;
+        }
         const pid = `pt-${state.nextId()}`;
         const payout = {
           id: pid,
           receive_amount: String(body["receive_amount"] ?? body["amount"] ?? "100"),
           currency: String(body["currency"] ?? "XOF"),
           status: waveStatus(),
-          client_reference: body["client_reference"] ?? null,
+          client_reference: clientRef ?? null,
         };
         state.putBounded(state.wavePayouts, pid, payout);
         sendJson(res, 200, payout);

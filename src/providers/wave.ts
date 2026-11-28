@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { inspect } from "node:util";
 
-import { JsMomoSDKError } from "../exceptions.js";
+import { JsMomoSDKError, WebhookVerificationError } from "../exceptions.js";
 import type { FetchLike } from "../http.js";
 import { DEFAULT_MAX_RESPONSE_BYTES, HttpClient, parseJsonObject } from "../http.js";
 import type { TelemetryHook } from "../telemetry.js";
@@ -15,10 +15,14 @@ import {
   validateCurrency,
   validateHeaderValue,
   validateMaxRetries,
+  validatePrintableText,
   validateRetryBackoff,
   validateTimeout,
 } from "../utils.js";
-import { verifyTimestampedHmacSignature } from "./_signatures.js";
+import {
+  verifyConstantTimeToken,
+  verifyTimestampedHmacSignature,
+} from "./_signatures.js";
 import type {
   PaymentProvider,
   ProviderBalanceOptions,
@@ -45,6 +49,26 @@ const WAVE_CAPABILITIES = new ProviderCapabilities({
 
 const VALID_WAVE_ENVIRONMENTS = new Set(["sandbox", "production"]);
 const WAVE_PROD_KEY_RE = /^wave_(?:[a-z]{2}_)?prod_/i;
+const MAX_WAVE_CLIENT_REFERENCE_LEN = 255;
+const MAX_WAVE_PAYMENT_REASON_LEN = 40;
+
+function validateWaveClientReference(clientReference?: string | null): string {
+  if (clientReference === undefined || clientReference === null) {
+    return generateReferenceId();
+  }
+  if (typeof clientReference !== "string" || !clientReference.trim()) {
+    throw new RangeError("clientReference must not be blank");
+  }
+  const cleaned = validateHeaderValue(clientReference.trim(), {
+    fieldName: "clientReference",
+  });
+  if (cleaned.length > MAX_WAVE_CLIENT_REFERENCE_LEN) {
+    throw new RangeError(
+      `Wave clientReference must not exceed ${MAX_WAVE_CLIENT_REFERENCE_LEN} characters`,
+    );
+  }
+  return cleaned;
+}
 
 export interface WaveConfigOptions {
   apiKey: string;
@@ -310,6 +334,7 @@ export interface WaveCheckoutParams {
   currency: string;
   clientReference?: string | null;
   restrictPayerMobile?: string | null;
+  aggregatedMerchantId?: string | null;
   successUrl?: string | null;
   errorUrl?: string | null;
 }
@@ -348,7 +373,7 @@ export class WaveClient {
 
   private headers(
     idempotencyKey?: string | null,
-    signedJsonBody?: string | null,
+    jsonPayload?: Record<string, unknown> | null,
   ): Record<string, string> {
     const out: Record<string, string> = {
       Authorization: `Bearer ${this.config.apiKey}`,
@@ -358,14 +383,14 @@ export class WaveClient {
       validateHeaderValue(idempotencyKey, { fieldName: "clientReference" });
       out["Idempotency-Key"] = idempotencyKey;
     }
-    if (
-      signedJsonBody !== undefined &&
-      signedJsonBody !== null &&
-      this.config.signingSecret
-    ) {
+    if (this.config.signingSecret) {
+      const serializedBody =
+        jsonPayload !== undefined && jsonPayload !== null
+          ? JSON.stringify(jsonPayload)
+          : "";
       const ts = Math.floor(Date.now() / 1000);
       const mac = createHmac("sha256", Buffer.from(this.config.signingSecret, "utf8"))
-        .update(`${ts}${signedJsonBody}`)
+        .update(`${ts}${serializedBody}`)
         .digest("hex");
       out["Wave-Signature"] = `t=${ts},v1=${mac}`;
     }
@@ -391,7 +416,7 @@ export class WaveClient {
         "successUrl and errorUrl are required for Wave checkout sessions",
       );
     }
-    const ref = params.clientReference ?? generateReferenceId();
+    const ref = validateWaveClientReference(params.clientReference);
     const payload: Record<string, unknown> = {
       amount,
       currency,
@@ -406,8 +431,17 @@ export class WaveClient {
       payload["restrict_payer_mobile"] =
         `+${normaliseMsisdn(params.restrictPayerMobile)}`;
     }
+    if (
+      params.aggregatedMerchantId !== undefined &&
+      params.aggregatedMerchantId !== null
+    ) {
+      payload["aggregated_merchant_id"] = validatePrintableText(
+        params.aggregatedMerchantId,
+        { fieldName: "aggregated_merchant_id" },
+      );
+    }
     const response = await this.http.request("POST", "/v1/checkout/sessions", {
-      headers: this.headers(ref),
+      headers: this.headers(ref, payload),
       json: payload,
       idempotent: true,
       referenceId: ref,
@@ -451,6 +485,11 @@ export class WaveClient {
       throw new RangeError("clientReference must be a non-empty string");
     }
     const cleaned = clientReference.trim();
+    if (cleaned.length > MAX_WAVE_CLIENT_REFERENCE_LEN) {
+      throw new RangeError(
+        `Wave clientReference must not exceed ${MAX_WAVE_CLIENT_REFERENCE_LEN} characters`,
+      );
+    }
     const response = await this.http.request(
       "GET",
       `/v1/checkout/sessions/search?client_reference=${encodeURIComponent(cleaned)}`,
@@ -481,30 +520,38 @@ export class WaveClient {
   public async createPayout(params: WavePayoutParams): Promise<WavePayoutResponse> {
     const currency = validateCurrency(params.currency);
     const amount = validateAmount(params.amount, { currency });
-    const ref = params.clientReference ?? generateReferenceId();
+    const ref = validateWaveClientReference(params.clientReference);
     const payload: Record<string, unknown> = {
       receive_amount: amount,
       currency,
       mobile: `+${normaliseMsisdn(params.mobile)}`,
       client_reference: ref,
     };
-    const optionalFields: Array<[string, string | null | undefined]> = [
-      ["name", params.name],
-      ["payment_reason", params.paymentReason],
-      ["national_id", params.nationalId],
-      ["aggregated_merchant_id", params.aggregatedMerchantId],
-    ];
-    for (const [key, val] of optionalFields) {
-      if (val !== undefined && val !== null) {
-        if (typeof val !== "string" || !val.trim()) {
-          throw new RangeError(`${key} must not be blank`);
-        }
-        payload[key] = val.trim();
-      }
+    if (params.name !== undefined && params.name !== null) {
+      payload["name"] = validatePrintableText(params.name, { fieldName: "name" });
     }
-    const serialized = this.config.signingSecret ? JSON.stringify(payload) : null;
+    if (params.paymentReason !== undefined && params.paymentReason !== null) {
+      payload["payment_reason"] = validatePrintableText(params.paymentReason, {
+        fieldName: "payment_reason",
+        maxLength: MAX_WAVE_PAYMENT_REASON_LEN,
+      });
+    }
+    if (params.nationalId !== undefined && params.nationalId !== null) {
+      payload["national_id"] = validatePrintableText(params.nationalId, {
+        fieldName: "national_id",
+      });
+    }
+    if (
+      params.aggregatedMerchantId !== undefined &&
+      params.aggregatedMerchantId !== null
+    ) {
+      payload["aggregated_merchant_id"] = validatePrintableText(
+        params.aggregatedMerchantId,
+        { fieldName: "aggregated_merchant_id" },
+      );
+    }
     const response = await this.http.request("POST", "/v1/payout", {
-      headers: this.headers(ref, serialized),
+      headers: this.headers(ref, payload),
       json: payload,
       idempotent: true,
       referenceId: ref,
@@ -534,6 +581,11 @@ export class WaveClient {
       throw new RangeError("clientReference must be a non-empty string");
     }
     const cleaned = clientReference.trim();
+    if (cleaned.length > MAX_WAVE_CLIENT_REFERENCE_LEN) {
+      throw new RangeError(
+        `Wave clientReference must not exceed ${MAX_WAVE_CLIENT_REFERENCE_LEN} characters`,
+      );
+    }
     const response = await this.http.request(
       "GET",
       `/v1/payouts/search?client_reference=${encodeURIComponent(cleaned)}`,
@@ -590,6 +642,34 @@ export class WaveClient {
     );
   }
 
+  /**
+   * Verify an inbound Wave webhook configured with Wave's **Shared Secret** strategy
+   * (`Authorization: Bearer <secret>`) in constant time.
+   */
+  public verifySharedSecretWebhook(authorizationHeader: string): void {
+    const expected = this.config.webhookSecret ?? "";
+    if (!expected) {
+      throw new WebhookVerificationError(
+        "Wave webhookSecret must be configured to verify Shared Secret webhooks",
+        { provider: "Wave" },
+      );
+    }
+    if (typeof authorizationHeader !== "string" || !authorizationHeader.trim()) {
+      throw new WebhookVerificationError(
+        "Wave Shared Secret Authorization header must not be empty",
+        { provider: "Wave" },
+      );
+    }
+    const match = authorizationHeader.trim().match(/^Bearer\s+(\S+)$/i);
+    if (!match) {
+      throw new WebhookVerificationError(
+        "Wave Shared Secret webhook requires 'Authorization: Bearer <secret>' header",
+        { provider: "Wave" },
+      );
+    }
+    verifyConstantTimeToken(match[1]!, expected);
+  }
+
   public close(): void {
     this.http.close();
   }
@@ -629,12 +709,16 @@ export class WaveProvider implements PaymentProvider {
   }
 
   public async disburse(request: DisbursementRequest): Promise<PaymentResult> {
+    const trimmedReason = request.payerMessage.trim();
+    const paymentReason = trimmedReason
+      ? trimmedReason.slice(0, MAX_WAVE_PAYMENT_REASON_LEN).trim() || null
+      : null;
     const payout = await this.client.createPayout({
       amount: request.amount,
       currency: request.currency,
       mobile: request.payeeMsisdn,
       clientReference: request.referenceId ?? (request.externalId || null),
-      paymentReason: request.payerMessage || null,
+      paymentReason,
     });
     return new PaymentResult({
       provider: this.name,

@@ -166,6 +166,24 @@ describe("Local Mock Gateway Server", () => {
     });
     expect((await wave.getPayout(payout.id)).status).toBe("succeeded");
     expect((await wave.getBalance()).amount).toBe("25000");
+    expect(
+      (
+        await fetch(`${mock.url}/v1/payout`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ payment_reason: "r".repeat(41) }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(`${mock.url}/v1/checkout/sessions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ client_reference: "c".repeat(256) }),
+        })
+      ).status,
+    ).toBe(400);
 
     // 4. M-Pesa
     const mpesa = new MpesaClient({
