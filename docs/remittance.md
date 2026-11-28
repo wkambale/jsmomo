@@ -38,4 +38,25 @@ try {
 }
 ```
 
+## Cross-border Cash Transfer (v2)
+
+Execute cross-border remittances carrying originating-corridor metadata (`POST /remittance/v2_0/cashtransfer`):
+
+```ts
+const cashRef = await client.remittance.cashTransfer({
+  amount: "50000",
+  currency: "UGX",
+  payeeMsisdn: "256772123456",
+  externalId: "cash-remit-2026-01",
+  originatingCountry: "RW",
+  originalAmount: "18000",
+  originalCurrency: "RWF",
+  payerMessage: "Cross-border remittance",
+  payeeNote: "Received from Kigali",
+});
+
+const cashStatus = await client.remittance.getCashTransferStatus(cashRef);
+console.log(cashStatus.status, cashStatus.financialTransactionId);
+```
+
 `client.remittance` also exposes `getBalanceForCurrency(currency)`, `isAccountHolderActive(accountHolderId)`, and `getBasicUserInfo(accountHolderId)`.

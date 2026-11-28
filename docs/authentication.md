@@ -66,6 +66,9 @@ const client = new JsMomoSDK(config);
 Exported constants from `js-momo-sdk`:
 
 - `SANDBOX` (`"sandbox"`)
+- `SANDBOX_BASE_URL` (`"https://sandbox.momodeveloper.mtn.com"`)
+- `PRODUCTION_BASE_URL` (`"https://proxy.momoapi.mtn.com"`)
+- `ONE_API_PRODUCTION_BASE_URL` (`"https://momoapi.momo.africa"`)
 - `MTN_UGANDA` (`"mtnuganda"`)
 - `MTN_GHANA` (`"mtnghana"`)
 - `MTN_CONGO` (`"mtncongo"`)

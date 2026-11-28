@@ -14,6 +14,16 @@ JS MoMo SDK normalizes **7 African mobile money and payment gateways** behind a 
 | Flutterwave | `FlutterwaveProvider` | `FlutterwaveClient` | Yes | Yes | Yes | Constant-time `verif-hash` |
 | Orange Money | `OrangeMoneyProvider` | `OrangeMoneyClient` | Yes | No | No | Constant-time `notif_token` + `OrangePaymentContextStore` |
 
+## Native rail client methods
+
+Beyond the unified `PaymentRouter`, each native client exposes rail-specific operations directly:
+
+- **`MpesaClient`:** `normaliseMpesaMsisdn()`, `stkPush()`, `stkQuery()`, `b2cTransfer()`, `transactionStatus()`, `accountBalance()`, `reverseTransaction()`, `parseMpesaStkCallback()`, `parseMpesaB2CCallback()`.
+- **`WaveClient`:** `createCheckoutSession()` (with `restrictPayerMobile` and `aggregatedMerchantId`), `getCheckoutSession()`, `refundCheckoutSession()`, `expireCheckoutSession()`, `searchCheckoutSessions()`, `createPayout()`, `getPayout()`, `reversePayout()`, `searchPayouts()`, `getBalance()`, `verifyWebhook()`, `verifySharedSecretWebhook()`.
+- **`PaystackClient`:** `initializeTransaction()` (with `channels` and `metadata`), `chargeMobileMoney()`, `verifyTransaction()`, `createRefund()`, `listBanks()`, `createTransferRecipient()`, `initiateTransfer()`, `verifyTransfer()`, `getBalances()`, `verifyWebhook()`.
+- **`FlutterwaveClient`:** `createPayment()`, `chargeMobileMoney()`, `verifyTransaction()`, `verifyTransactionByReference()`, `createRefund()`, `createTransfer()` (with `beneficiaryName`, `destinationBranchCode`, `debitCurrency`, `meta`), `getTransfer()`, `getTransferByReference()`, `getBalances()`, `verifyWebhook()`.
+- **`OrangeMoneyClient`:** `createWebPayment()` (compact `<= 30`-char `orderId`, UTF-8 `reference`, and `MGA`/`XOF`/`XAF`/`GNF`/`OUV` integer formatting), `getTransactionStatus()`, `verifyNotification()`.
+
 ## Routing with `PaymentRouter`
 
 ```ts
