@@ -651,9 +651,26 @@ export function createMockServer(options: MockServerOptions = {}): {
         return;
       }
 
-      if (path === "/transaction/initialize" || path === "/transfer") {
+      if (
+        path === "/transaction/initialize" ||
+        path === "/transfer" ||
+        path === "/charge"
+      ) {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
-        const ref = String(body["reference"] ?? "ps-mock-ref");
+        if (
+          path === "/transfer" &&
+          body["reference"] !== undefined &&
+          (typeof body["reference"] !== "string" ||
+            !/^[a-z0-9_-]{16,50}$/.test(body["reference"]))
+        ) {
+          sendJson(res, 400, {
+            status: false,
+            message:
+              "Reference must be between 16 and 50 characters and contain only lowercase alphanumeric, -, and _",
+          });
+          return;
+        }
+        const ref = String(body["reference"] ?? "ps-mock-ref-0001");
         const psStatus =
           state.defaultStatus === "SUCCESSFUL"
             ? "success"
@@ -672,6 +689,29 @@ export function createMockServer(options: MockServerOptions = {}): {
         };
         state.putBounded(state.paystackTransactions, ref, entry);
         sendJson(res, 200, entry);
+        return;
+      }
+
+      if (path === "/refund") {
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const tx = body["transaction"];
+        if (
+          (typeof tx !== "string" || !tx.trim()) &&
+          (typeof tx !== "number" || !Number.isSafeInteger(tx) || tx <= 0)
+        ) {
+          sendJson(res, 400, { status: false, message: "transaction is required" });
+          return;
+        }
+        sendJson(res, 200, {
+          status: true,
+          message: "Refund has been queued for processing",
+          data: {
+            transaction: { reference: String(tx) },
+            amount: body["amount"] ?? null,
+            currency: body["currency"] ?? "NGN",
+            status: "pending",
+          },
+        });
         return;
       }
 
@@ -899,6 +939,20 @@ export function createMockServer(options: MockServerOptions = {}): {
         sendJson(res, 200, {
           status: true,
           data: [{ balance: 100000, currency: "NGN" }],
+        });
+        return;
+      }
+      if (path === "/bank") {
+        sendJson(res, 200, {
+          status: true,
+          data: [
+            {
+              name: "MTN Mobile Money",
+              code: "MTN",
+              type: "mobile_money",
+              currency: parsedUrl.searchParams.get("currency") ?? "GHS",
+            },
+          ],
         });
         return;
       }
