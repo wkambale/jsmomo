@@ -198,6 +198,18 @@ export class PaymentRouter {
           candidates.push(defCand);
         }
       }
+      if (candidates.length === 0) {
+        for (const name of this.order) {
+          const cand = this.providers.get(name);
+          if (
+            cand &&
+            supportsOperationAndCurrency(cand, params.operation, params.currency)
+          ) {
+            candidates.push(cand);
+            break;
+          }
+        }
+      }
     }
 
     if (params.fallback) {

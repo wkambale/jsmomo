@@ -37,6 +37,7 @@ const MTN_CAPABILITIES = new ProviderCapabilities({
     "ZAR",
     "SZL",
     "LRD",
+    "USD",
     "GNF",
     "RWF",
     "NGN",

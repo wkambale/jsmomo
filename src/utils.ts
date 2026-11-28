@@ -767,7 +767,7 @@ export interface CarrierMatch {
   readonly provider: string;
 }
 
-const CARRIER_PREFIX_MAP: readonly (readonly [string, string, string])[] = [
+export const CARRIER_PREFIX_MAP: readonly (readonly [string, string, string])[] = [
   // Uganda (256)
   ["25677", "UG", "mtn_momo"],
   ["25678", "UG", "mtn_momo"],
