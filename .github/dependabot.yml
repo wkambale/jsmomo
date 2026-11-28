@@ -4,6 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
       - "security"
@@ -12,6 +16,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+    # typescript-eslint v8 peerDependency requires typescript <6.1.0
+    ignore:
+      - dependency-name: "typescript"
+        versions: [">= 7.0.0"]
     labels:
       - "dependencies"
 
@@ -19,5 +30,9 @@ updates:
     directory: "/docs"
     schedule:
       interval: "weekly"
+    groups:
+      docs-dependencies:
+        patterns:
+          - "*"
     labels:
       - "dependencies"
