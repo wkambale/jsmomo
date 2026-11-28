@@ -109,6 +109,11 @@ describe("exceptions", () => {
         "Ocp-Apim-Subscription-Key": "sub-kebab",
         pay_token: "om-pay-tok",
         notif_token: "om-notif-tok",
+        signingSecret: "wave-sign-sec",
+        private_key: "rsa-priv-key",
+        encryptionKey: "flw-enc-key",
+        "x-key": "airtel-x-key",
+        "x-signature": "airtel-x-sig",
         safeField: "ok",
       },
     });
@@ -121,6 +126,11 @@ describe("exceptions", () => {
       "Ocp-Apim-Subscription-Key",
       "pay_token",
       "notif_token",
+      "signingSecret",
+      "private_key",
+      "encryptionKey",
+      "x-key",
+      "x-signature",
     ]) {
       expect(multiErr.responseBody[k]).toBe("<redacted>");
     }

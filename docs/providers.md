@@ -7,12 +7,12 @@ JS MoMo SDK normalizes **7 African mobile money and payment gateways** behind a 
 | Provider | Adapter | Native Client | Collection | Disbursement | Balance | Webhook Verification |
 | --- | --- | --- | --- | --- | --- | --- |
 | MTN MoMo | `MtnMomoProvider` | `JsMomoSDK` | Yes | Yes | Yes | Static / HMAC / IP allowlist |
-| Airtel Money | `AirtelMoneyProvider` | `AirtelClient` | Yes | Yes | Yes | Static / HMAC / IP allowlist |
-| Wave | `WaveProvider` | `WaveClient` | Yes | Yes | Yes | Timestamped HMAC (`Wave-Signature`) |
-| Safaricom M-Pesa | `MpesaProvider` | `MpesaClient` | Yes (STK Push) | Yes (B2C) | Callback-only | IP allowlist |
+| Airtel Money | `AirtelMoneyProvider` | `AirtelClient` | Yes | Yes | Yes | Base64 HMAC-SHA256 (`x-signature`) / IP allowlist |
+| Wave | `WaveProvider` | `WaveClient` | Yes | Yes | Yes | Timestamped HMAC (`Wave-Signature`) / Shared secret |
+| Safaricom M-Pesa | `MpesaProvider` | `MpesaClient` | Yes (STK Push) | Yes (B2C) | Async callback (`accountBalance`) | IP allowlist |
 | Paystack | `PaystackProvider` | `PaystackClient` | Yes | Yes (`RCP_`) | Yes | HMAC-SHA512 (`x-paystack-signature`) |
 | Flutterwave | `FlutterwaveProvider` | `FlutterwaveClient` | Yes | Yes | Yes | Constant-time `verif-hash` |
-| Orange Money | `OrangeMoneyProvider` | `OrangeMoneyClient` | Yes | No | No | Pluggable `OrangePaymentContextStore` |
+| Orange Money | `OrangeMoneyProvider` | `OrangeMoneyClient` | Yes | No | No | Constant-time `notif_token` + `OrangePaymentContextStore` |
 
 ## Routing with `PaymentRouter`
 

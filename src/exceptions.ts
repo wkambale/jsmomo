@@ -27,6 +27,11 @@ const SENSITIVE_BODY_KEYS: ReadonlySet<string> = new Set([
   "merchantkey",
   "paytoken",
   "notiftoken",
+  "signingsecret",
+  "privatekey",
+  "encryptionkey",
+  "xkey",
+  "xsignature",
 ]);
 
 export interface AttemptedReference {

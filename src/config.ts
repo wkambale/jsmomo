@@ -196,6 +196,34 @@ export class JsMomoSDKConfig {
     Object.freeze(this);
   }
 
+  public toString(): string {
+    const col = this.collection ? "<configured>" : "null";
+    const disb = this.disbursement ? "<configured>" : "null";
+    const rem = this.remittance ? "<configured>" : "null";
+    return (
+      `JsMomoSDKConfig(environment=${JSON.stringify(this.environment)}, ` +
+      `baseUrl=${JSON.stringify(this.baseUrl)}, collection=${col}, ` +
+      `disbursement=${disb}, remittance=${rem})`
+    );
+  }
+
+  public toJSON(): Record<string, unknown> {
+    return {
+      environment: this.environment,
+      baseUrl: this.baseUrl,
+      timeout: this.timeout,
+      maxRetries: this.maxRetries,
+      retryBackoff: this.retryBackoff,
+      collection: this.collection ? this.collection.toJSON() : null,
+      disbursement: this.disbursement ? this.disbursement.toJSON() : null,
+      remittance: this.remittance ? this.remittance.toJSON() : null,
+    };
+  }
+
+  public [inspect.custom](): string {
+    return this.toString();
+  }
+
   /**
    * Create a JsMomoSDKConfig instance by reading `JS_MOMO_SDK_*` environment variables.
    */

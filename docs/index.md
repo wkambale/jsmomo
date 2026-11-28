@@ -11,7 +11,7 @@ hide:
   </svg>
   <div class="pm-hero__eyebrow">
     <span class="pm-hero__eyebrow-line" aria-hidden="true"></span>
-    <span>TypeScript / JavaScript SDK version 1.0.0</span>
+    <span>TypeScript / JavaScript SDK version 1.2.1</span>
   </div>
   <h1 class="pm-hero__title">JS MoMo SDK for African Mobile Money and Payment Rails</h1>
   <p class="pm-hero__lead">A zero-dependency, strictly typed TypeScript and JavaScript SDK for MTN Mobile Money, Airtel Money, Wave, Safaricom M-Pesa, Paystack, Flutterwave, and Orange Money behind a unified <code>PaymentRouter</code>. Ships dual ESM and CommonJS bundles with automatic token caching, strict input validation, and verified webhook security.</p>
@@ -45,7 +45,7 @@ JS MoMo SDK covers every MTN MoMo Open API product alongside Airtel Money and pa
     <p class="pm-card__eyebrow">MTN MoMo</p>
     <div class="pm-card__body">
       <h3 class="pm-card__title">Collection</h3>
-      <p class="pm-card__text">Request payments, initiate withdrawals, query balances, and exchange CIBA OAuth2 consent tokens.</p>
+      <p class="pm-card__text">Request payments, initiate withdrawals, pre-approvals, delivery notifications, balances, and CIBA OAuth2 consent tokens.</p>
       <a class="pm-card__link" href="collection/">Explore collection</a>
     </div>
   </article>
@@ -53,7 +53,7 @@ JS MoMo SDK covers every MTN MoMo Open API product alongside Airtel Money and pa
     <p class="pm-card__eyebrow">MTN MoMo</p>
     <div class="pm-card__body">
       <h3 class="pm-card__title">Disbursement and remittance</h3>
-      <p class="pm-card__text">Execute subscriber transfers, v2 deposits, refunds, wallet-to-wallet remittances, and account validation.</p>
+      <p class="pm-card__text">Execute subscriber transfers, v2 deposits, refunds, cross-border cash transfers, remittances, and account validation.</p>
       <a class="pm-card__link" href="disbursement/">Explore disbursement</a>
     </div>
   </article>

@@ -26,6 +26,9 @@ export const RETRYABLE_STATUS_CODES: ReadonlySet<number> = new Set([
 const SAFE_RETRY_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 const PII_PATH_RE = /(\/accountholder\/[^/]+\/)[^/]+/gi;
 const APIUSER_PATH_RE = /(\/v1_0\/apiuser\/)[^/]+/gi;
+const AIRTEL_USER_PATH_RE = /(\/standard\/v1\/users\/)(?!balance(?:\/|$))[^/]+/gi;
+const MTN_USER_INFO_PATH_RE =
+  /(\/(?:collection|disbursement|remittance)\/v\d+_\d+\/user\/)[^/]+(\/basicuserinfo)/gi;
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -66,8 +69,11 @@ class ResponseTooLargeError extends JsMomoSDKError {}
 /** Strip query strings and redact sensitive identifiers before logging or emitting telemetry. */
 export function sanitizeTelemetryPath(path: string): string {
   const withoutQuery = path.split("?", 1)[0] ?? path;
-  const redactedPii = withoutQuery.replace(PII_PATH_RE, "$1<redacted>");
-  return redactedPii.replace(APIUSER_PATH_RE, "$1<redacted>");
+  return withoutQuery
+    .replace(PII_PATH_RE, "$1<redacted>")
+    .replace(APIUSER_PATH_RE, "$1<redacted>")
+    .replace(AIRTEL_USER_PATH_RE, "$1<redacted>")
+    .replace(MTN_USER_INFO_PATH_RE, "$1<redacted>$2");
 }
 
 export function getHeaderCI(

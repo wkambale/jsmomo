@@ -24,7 +24,7 @@ const client = new JsMomoSDK(config, {
 });
 ```
 
-- Retries only execute on idempotent requests (`GET`/`HEAD`/`PUT`/`DELETE`, or `POST` requests carrying `X-Reference-Id` or `Idempotency-Key`).
+- Retries only execute on idempotent requests (`GET`/`HEAD`/`OPTIONS`, or `POST` requests carrying `X-Reference-Id` or `Idempotency-Key`).
 - Retry delays honor `Retry-After` headers (clamped safely) and use `crypto.randomInt` jitter.
 - HTTP `3xx` redirects are never followed automatically (`redirect: "manual"`).
 
@@ -38,14 +38,15 @@ const settled = await waitForSettlement(
   {
     timeout: 60,
     interval: 2,
-    backoffMultiplier: 1.5,
+    backoff: 1.5,
     maxInterval: 10,
+    raiseOnFailed: true,
     referenceId,
   },
 );
 ```
 
-If the transaction resolves to `FAILED`, `waitForSettlement()` throws `TransactionFailedError` with `referenceId` and the provider's failure `reason`.
+When `raiseOnFailed: true` is set and the transaction resolves to `FAILED`, `waitForSettlement()` throws `TransactionFailedError` with `referenceId` and the provider's failure `reason` (otherwise it resolves with the terminal `FAILED` result).
 
 ## Observability (`TelemetryHook`)
 
