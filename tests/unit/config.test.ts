@@ -28,6 +28,27 @@ describe("config", () => {
       expect(rendered).not.toContain("550e8400");
       expect(rendered).toContain("<redacted>");
     }
+
+    const topCfg = new JsMomoSDKConfig({
+      environment: SANDBOX,
+      collection: prod,
+      disbursement: {
+        subscriptionKey: "disb-sub-secret",
+        apiUser: "disb-user-secret",
+        apiKey: "disb-api-secret",
+      },
+    });
+    for (const rendered of [String(topCfg), inspect(topCfg), JSON.stringify(topCfg)]) {
+      expect(rendered).not.toContain("sub-secret-key");
+      expect(rendered).not.toContain("api-secret-key");
+      expect(rendered).not.toContain("550e8400");
+      expect(rendered).not.toContain("disb-sub-secret");
+      expect(rendered).not.toContain("disb-user-secret");
+      expect(rendered).not.toContain("disb-api-secret");
+    }
+    expect(String(topCfg)).toContain("collection=<configured>");
+    expect(String(topCfg)).toContain("remittance=null");
+    expect(JSON.parse(JSON.stringify(topCfg)).collection.apiKey).toBe("<redacted>");
   });
 
   it("rejects empty credentials, colons in apiUser, and non-ASCII headers", () => {

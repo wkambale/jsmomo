@@ -543,4 +543,24 @@ describe("HttpClient and error extraction", () => {
     expect(fetchCalls).toBe(0);
     client.close();
   });
+
+  it("redacts MTN and Airtel subscriber identifiers in sanitizeTelemetryPath while preserving balance paths (Issue #93)", () => {
+    expect(
+      sanitizeTelemetryPath(
+        "/collection/v1_0/accountholder/msisdn/256772123456/active?foo=bar",
+      ),
+    ).toBe("/collection/v1_0/accountholder/msisdn/<redacted>/active");
+    expect(
+      sanitizeTelemetryPath("/v1_0/apiuser/550e8400-e29b-41d4-a716-446655440000"),
+    ).toBe("/v1_0/apiuser/<redacted>");
+    expect(sanitizeTelemetryPath("/standard/v1/users/772123456?country=UG")).toBe(
+      "/standard/v1/users/<redacted>",
+    );
+    expect(sanitizeTelemetryPath("/standard/v1/users/balance")).toBe(
+      "/standard/v1/users/balance",
+    );
+    expect(
+      sanitizeTelemetryPath("/collection/v2_0/user/256772123456/basicuserinfo"),
+    ).toBe("/collection/v2_0/user/<redacted>/basicuserinfo");
+  });
 });

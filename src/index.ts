@@ -193,6 +193,7 @@ export type {
   WebhookTelemetryEvent,
 } from "./telemetry.js";
 export {
+  CARRIER_PREFIX_MAP,
   type CarrierMatch,
   type WaitForSettlementOptions,
   buildBasicAuthHeader,
