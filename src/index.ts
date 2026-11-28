@@ -36,6 +36,7 @@ export {
   MTN_SWAZILAND,
   MTN_UGANDA,
   MTN_ZAMBIA,
+  ONE_API_PRODUCTION_BASE_URL,
   PRODUCTION_BASE_URL,
   ProductConfig,
   type ProductConfigOptions,
@@ -74,6 +75,7 @@ export {
   BcAuthorizeResponse,
   OAuth2TokenResponse,
   type Party,
+  PreApprovalResult,
   ProvisionResult,
   TokenResponse,
   TransactionResult,
@@ -84,6 +86,8 @@ export {
   type BcAuthorizeParams,
   Collection,
   type CreateOAuth2TokenParams,
+  type DeliveryNotificationParams,
+  type PreApprovalParams,
   type RequestToPayParams,
 } from "./products/collection.js";
 export {
@@ -91,7 +95,7 @@ export {
   type DisbursementTransferParams,
   type RefundParams,
 } from "./products/disbursement.js";
-export { Remittance } from "./products/remittance.js";
+export { type CashTransferParams, Remittance } from "./products/remittance.js";
 export {
   AirtelMoneyProvider,
   type BalanceResult,

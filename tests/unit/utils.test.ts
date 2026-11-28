@@ -344,6 +344,11 @@ describe("utils", () => {
   });
 
   it("validates printable UTF-8 text fields with control-character and length checks", () => {
+    expect(validateCallbackHost("example.com:8443")).toBe("example.com:8443");
+    expect(() => validateCallbackHost("example.com:70000")).toThrow(
+      "between 1 and 65535",
+    );
+    expect(() => validateCallbackHost("example.com:abc")).toThrow(RangeError);
     expect(
       validatePrintableText("  Boutique Sénégal  ", { fieldName: "reference" }),
     ).toBe("Boutique Sénégal");

@@ -29,6 +29,7 @@ export const MTN_RWANDA = "mtnrwanda";
 
 export const SANDBOX_BASE_URL = "https://sandbox.momodeveloper.mtn.com";
 export const PRODUCTION_BASE_URL = "https://proxy.momoapi.mtn.com";
+export const ONE_API_PRODUCTION_BASE_URL = "https://momoapi.momo.africa";
 
 export interface ProductConfigOptions {
   subscriptionKey: string;

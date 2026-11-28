@@ -2,12 +2,14 @@ import type {
   BasicUserInfo,
   BcAuthorizeResponse,
   OAuth2TokenResponse,
+  PreApprovalResult,
   TransactionResult,
 } from "../models.js";
 import {
   parseBasicUserInfoResponse,
   parseBcAuthorizeResponse,
   parseOAuth2TokenResponse,
+  parsePreApprovalResultResponse,
   parseTransactionResultResponse,
   validateExternalId,
   validateNoteText,
@@ -49,6 +51,22 @@ export interface CreateOAuth2TokenParams {
   authReqId?: string | null;
   grantType?: string;
   refreshToken?: string | null;
+}
+
+export interface DeliveryNotificationParams {
+  referenceId: string;
+  notificationMessage: string;
+  language?: string | null;
+}
+
+export interface PreApprovalParams {
+  payerMsisdn: string;
+  payerCurrency: string;
+  payerMessage?: string;
+  validityTime: number;
+  referenceId?: string | null;
+  callbackUrl?: string | null;
+  partyIdType?: string;
 }
 
 /** MTN MoMo Collection product client. */
@@ -132,6 +150,140 @@ export class Collection extends BaseProduct {
       },
     );
     return parseTransactionResultResponse(response, referenceId);
+  }
+
+  /**
+   * Send a post-payment delivery notification message (`<= 160` chars) for a Request to Pay
+   * (`POST /collection/v1_0/requesttopay/{referenceId}/deliverynotification`).
+   */
+  public async requestToPayDeliveryNotification(
+    params: DeliveryNotificationParams,
+  ): Promise<void>;
+  public async requestToPayDeliveryNotification(
+    referenceId: string,
+    notificationMessage: string,
+    options?: { language?: string | null },
+  ): Promise<void>;
+  public async requestToPayDeliveryNotification(
+    refOrParams: string | DeliveryNotificationParams,
+    maybeMessage?: string,
+    maybeOptions: { language?: string | null } = {},
+  ): Promise<void> {
+    const referenceId =
+      typeof refOrParams === "string" ? refOrParams : refOrParams.referenceId;
+    const rawMsg =
+      typeof refOrParams === "string"
+        ? (maybeMessage ?? "")
+        : refOrParams.notificationMessage;
+    const language =
+      typeof refOrParams === "string" ? maybeOptions.language : refOrParams.language;
+
+    validateReferenceId(referenceId);
+    if (typeof rawMsg !== "string" || !rawMsg.trim()) {
+      throw new RangeError("notificationMessage must be a non-empty string");
+    }
+    const notificationMessage = validateNoteText(rawMsg.trim(), "notificationMessage");
+    const headers = await this.buildHeaders({ includeContentType: true });
+    if (/^[ -~]+$/.test(notificationMessage)) {
+      headers["notificationMessage"] = notificationMessage;
+    }
+    if (language !== undefined && language !== null) {
+      if (typeof language !== "string" || !language.trim()) {
+        throw new RangeError("language must not be blank");
+      }
+      headers["Language"] = validateHeaderValue(language.trim(), {
+        fieldName: "language",
+        allowWhitespace: false,
+      });
+    }
+    await this.http.request(
+      "POST",
+      `/collection/v1_0/requesttopay/${referenceId}/deliverynotification`,
+      {
+        headers,
+        json: { notificationMessage },
+        productName: this.productName,
+        tokenCache: this.tokenCache,
+        tokenRefresher: this.getToken,
+        tokenNamespace: this.tokenNamespace,
+        referenceId,
+      },
+    );
+  }
+
+  /**
+   * Initiate a Collection v2 PreApproval authorization (`POST /collection/v2_0/preapproval`)
+   * and return the UUID v4 reference ID.
+   */
+  public async preApprove(params: PreApprovalParams): Promise<string> {
+    if (params.referenceId !== undefined && params.referenceId !== null) {
+      validateReferenceId(params.referenceId);
+    }
+    const ref = params.referenceId ?? generateReferenceId();
+    const payerCurrency = validateCurrency(params.payerCurrency);
+    const payerMessage = validateNoteText(params.payerMessage ?? "", "payerMessage");
+    if (
+      typeof params.validityTime !== "number" ||
+      !Number.isInteger(params.validityTime) ||
+      params.validityTime <= 0
+    ) {
+      throw new RangeError("validityTime must be a positive integer (seconds)");
+    }
+    const normPartyType = (params.partyIdType ?? "MSISDN").trim().toUpperCase();
+    if (!normPartyType) {
+      throw new RangeError("partyIdType must be a non-empty string");
+    }
+    validateHeaderValue(normPartyType, { fieldName: "partyIdType" });
+    const partyId =
+      normPartyType === "MSISDN"
+        ? normaliseMsisdn(params.payerMsisdn)
+        : validateHeaderValue(params.payerMsisdn.trim(), { fieldName: "payerMsisdn" });
+    if (!partyId) {
+      throw new RangeError("partyId must be a non-empty string");
+    }
+
+    await this.http.request("POST", "/collection/v2_0/preapproval", {
+      headers: await this.buildHeaders({
+        referenceId: ref,
+        includeCallback: true,
+        callbackUrl: params.callbackUrl,
+        includeContentType: true,
+      }),
+      json: {
+        payer: {
+          partyIdType: normPartyType,
+          partyId,
+        },
+        payerCurrency,
+        payerMessage,
+        validityTime: params.validityTime,
+      },
+      productName: this.productName,
+      tokenCache: this.tokenCache,
+      tokenRefresher: this.getToken,
+      tokenNamespace: this.tokenNamespace,
+      idempotent: params.referenceId !== undefined && params.referenceId !== null,
+      referenceId: ref,
+    });
+    return ref;
+  }
+
+  /** Poll the status of a Collection v2 PreApproval (`GET /collection/v2_0/preapproval/{referenceId}`). */
+  public async getPreApprovalStatus(referenceId: string): Promise<PreApprovalResult> {
+    validateReferenceId(referenceId);
+    const response = await this.http.request(
+      "GET",
+      `/collection/v2_0/preapproval/${referenceId}`,
+      {
+        headers: await this.buildHeaders(),
+        productName: this.productName,
+        tokenCache: this.tokenCache,
+        tokenRefresher: this.getToken,
+        tokenNamespace: this.tokenNamespace,
+        referenceId,
+      },
+    );
+    return parsePreApprovalResultResponse(response, referenceId);
   }
 
   /** Initiate a Request to Withdraw (v2) and return the UUID v4 reference ID. */

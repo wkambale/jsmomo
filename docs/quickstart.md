@@ -24,7 +24,7 @@ try {
     process.env.JS_MOMO_SDK_COLLECTION_SUBSCRIPTION_KEY!,
   );
   const { apiUser, apiKey } = await provisioner.provision({
-    callbackHost: "https://example.com",
+    callbackHost: "example.com",
   });
   console.log({ apiUser, apiKey });
 } finally {

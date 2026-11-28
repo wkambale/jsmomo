@@ -344,6 +344,76 @@ export class TransactionResult {
   }
 }
 
+/** MTN MoMo Collection PreApproval v2 status result. */
+export class PreApprovalResult {
+  public readonly payer: Party | null;
+  public readonly payerCurrency: string | null;
+  public readonly payerMessage: string | null;
+  public readonly status: TransactionStatus;
+  public readonly expirationDateTime: number | string | null;
+  public readonly reason: string | null;
+  public readonly reasonCode: string | null;
+
+  constructor(data: Record<string, unknown>) {
+    const rawStatus = data["status"];
+    if (
+      rawStatus !== TransactionStatus.PENDING &&
+      rawStatus !== TransactionStatus.SUCCESSFUL &&
+      rawStatus !== TransactionStatus.FAILED
+    ) {
+      throw new RangeError("Invalid PreApprovalResult status");
+    }
+
+    let reason: string | null = null;
+    let reasonCode: string | null = optionalStr(
+      data["reasonCode"] ?? data["reason_code"],
+    );
+    const rawReason = data["reason"];
+    if (typeof rawReason === "string") {
+      reason = rawReason.trim() || null;
+    } else if (
+      rawReason &&
+      typeof rawReason === "object" &&
+      !Array.isArray(rawReason)
+    ) {
+      const r = rawReason as Record<string, unknown>;
+      const code = typeof r["code"] === "string" ? r["code"].trim() : "";
+      const msg = typeof r["message"] === "string" ? r["message"].trim() : "";
+      if (code && msg) {
+        reason = `${code}: ${msg}`;
+      } else if (code || msg) {
+        reason = code || msg;
+      }
+      if (code && !reasonCode) {
+        reasonCode = code;
+      }
+    }
+
+    const expRaw = data["expirationDateTime"] ?? data["expiration_date_time"];
+    this.payer = parseParty(data["payer"]);
+    this.payerCurrency = optionalStr(data["payerCurrency"] ?? data["payer_currency"]);
+    this.payerMessage = optionalStr(data["payerMessage"] ?? data["payer_message"]);
+    this.status = rawStatus;
+    this.expirationDateTime =
+      typeof expRaw === "number" || typeof expRaw === "string" ? expRaw : null;
+    this.reason = reason;
+    this.reasonCode = reasonCode;
+    Object.freeze(this);
+  }
+
+  public isSuccessful(): boolean {
+    return this.status === TransactionStatus.SUCCESSFUL;
+  }
+
+  public isPending(): boolean {
+    return this.status === TransactionStatus.PENDING;
+  }
+
+  public isFailed(): boolean {
+    return this.status === TransactionStatus.FAILED;
+  }
+}
+
 /** Sandbox API key response with secret redaction. */
 export class ApiKeyResult {
   public readonly apiKey: string;
@@ -421,6 +491,21 @@ export function parseTransactionResultResponse(
   } catch {
     throw new JsMomoSDKError(
       "API response did not match expected TransactionResult schema",
+      { referenceId: referenceId ?? null, statusCode: response.status },
+    );
+  }
+}
+
+export function parsePreApprovalResultResponse(
+  response: HttpResponse,
+  referenceId?: string | null,
+): PreApprovalResult {
+  const data = parseJsonObject(response, referenceId);
+  try {
+    return new PreApprovalResult(data);
+  } catch {
+    throw new JsMomoSDKError(
+      "API response did not match expected PreApprovalResult schema",
       { referenceId: referenceId ?? null, statusCode: response.status },
     );
   }

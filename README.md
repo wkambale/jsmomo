@@ -56,7 +56,7 @@ try {
     "your-sandbox-subscription-key",
   );
   const credentials = await provisioner.provision({
-    callbackHost: "https://example.com",
+    callbackHost: "example.com",
   });
 
   console.log(`API user: ${credentials.apiUser}`);

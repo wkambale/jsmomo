@@ -1,7 +1,7 @@
 import { inspect } from "node:util";
 
 import type { JsMomoSDKConfig } from "./config.js";
-import { PRODUCTION_BASE_URL, SANDBOX } from "./config.js";
+import { ONE_API_PRODUCTION_BASE_URL, PRODUCTION_BASE_URL, SANDBOX } from "./config.js";
 import { JsMomoSDKError, MissingCredentialsError } from "./exceptions.js";
 import type { HttpClient } from "./http.js";
 import type { ApiUserInfo } from "./models.js";
@@ -17,9 +17,11 @@ import {
   validateReferenceId,
 } from "./utils.js";
 
-const PRODUCTION_HOST = new URL(PRODUCTION_BASE_URL).hostname
-  .toLowerCase()
-  .replace(/\.+$/, "");
+const PRODUCTION_HOSTS = new Set(
+  [PRODUCTION_BASE_URL, ONE_API_PRODUCTION_BASE_URL].map((u) =>
+    new URL(u).hostname.toLowerCase().replace(/\.+$/, ""),
+  ),
+);
 
 export interface SandboxProvisionerOptions {
   subscriptionKey?: string;
@@ -44,7 +46,7 @@ export class SandboxProvisioner {
     const baseHost = new URL(this.http.validatedBaseUrl).hostname
       .toLowerCase()
       .replace(/\.+$/, "");
-    if (baseHost === PRODUCTION_HOST) {
+    if (PRODUCTION_HOSTS.has(baseHost)) {
       throw new JsMomoSDKError(
         "SandboxProvisioner can only be used with the sandbox environment",
       );
@@ -70,7 +72,21 @@ export class SandboxProvisioner {
     options: { apiUser?: string; callbackHost?: string } = {},
   ): Promise<string> {
     const callbackHost = options.callbackHost ?? "example.com";
-    validateCallbackHost(callbackHost);
+    const validatedHost = validateCallbackHost(callbackHost);
+    let normalizedCallbackHost: string;
+    if (validatedHost.includes("://")) {
+      const parsed = new URL(validatedHost);
+      const cleanHostname = parsed.hostname.replace(/\.+$/, "");
+      normalizedCallbackHost = parsed.port
+        ? `${cleanHostname}:${parsed.port}`
+        : cleanHostname;
+    } else {
+      const colonIdx = validatedHost.indexOf(":");
+      normalizedCallbackHost =
+        colonIdx === -1
+          ? validatedHost.replace(/\.+$/, "")
+          : `${validatedHost.slice(0, colonIdx).replace(/\.+$/, "")}:${validatedHost.slice(colonIdx + 1)}`;
+    }
     if (options.apiUser !== undefined) {
       validateReferenceId(options.apiUser);
     }
@@ -81,7 +97,7 @@ export class SandboxProvisioner {
         "Ocp-Apim-Subscription-Key": this.subscriptionKey,
         "Content-Type": "application/json",
       },
-      json: { providerCallbackHost: callbackHost },
+      json: { providerCallbackHost: normalizedCallbackHost },
       referenceId: ref,
     });
     return ref;

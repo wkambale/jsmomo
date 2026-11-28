@@ -94,11 +94,28 @@ describe("Local Mock Gateway Server", () => {
         apiUser: "u",
         apiKey: "k",
       }),
+      remittance: new ProductConfig({
+        subscriptionKey: "sub",
+        apiUser: "u",
+        apiKey: "k",
+      }),
     });
     const prov = mtn.createSandboxProvisioner("sub");
-    const creds = await prov.provision({ callbackHost: "example.com" });
+    const creds = await prov.provision({ callbackHost: "https://example.com" });
     expect(creds.apiKey).toContain("mock-api-key-");
+    expect((await prov.getApiUser(creds.apiUser)).providerCallbackHost).toBe(
+      "example.com",
+    );
     expect((await prov.getApiUser(creds.apiUser)).targetEnvironment).toBe("sandbox");
+    expect(
+      (
+        await fetch(`${mock.url}/v1_0/apiuser`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ providerCallbackHost: "https://example.com" }),
+        })
+      ).status,
+    ).toBe(400);
 
     const ref = await mtn.collection.requestToPay({
       amount: "500",
@@ -107,6 +124,61 @@ describe("Local Mock Gateway Server", () => {
       externalId: "e1",
     });
     expect((await mtn.collection.getPaymentStatus(ref)).isSuccessful()).toBe(true);
+    await mtn.collection.requestToPayDeliveryNotification(ref, "Order delivered");
+    expect(
+      (
+        await fetch(
+          `${mock.url}/collection/v1_0/requesttopay/${ref}/deliverynotification`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ notificationMessage: "" }),
+          },
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(
+          `${mock.url}/collection/v1_0/requesttopay/missing/deliverynotification`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ notificationMessage: "hi" }),
+          },
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await fetch(`${mock.url}/remittance/v2_0/cashtransfer`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ amount: "100", currency: "UGX" }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (await fetch(`${mock.url}/collection/v2_0/preapproval/missing`)).status,
+    ).toBe(404);
+    const paRef = await mtn.collection.preApprove({
+      payerMsisdn: "256772123456",
+      payerCurrency: "UGX",
+      validityTime: 3600,
+    });
+    expect((await mtn.collection.getPreApprovalStatus(paRef)).isSuccessful()).toBe(
+      true,
+    );
+    const ctRef = await mtn.remittance.cashTransfer({
+      amount: "500",
+      currency: "UGX",
+      payeeMsisdn: "256772123456",
+      externalId: "ct-1",
+      originatingCountry: "UG",
+    });
+    expect((await mtn.remittance.getCashTransferStatus(ctRef)).isSuccessful()).toBe(
+      true,
+    );
     await expect(
       mtn.collection.requestToPay({
         amount: "500",

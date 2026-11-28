@@ -16,7 +16,7 @@ try {
 
   // One-step provision (creates user + generates key)
   const { apiUser, apiKey } = await provisioner.provision({
-    callbackHost: "https://example.com",
+    callbackHost: "example.com",
   });
   console.log("API User:", apiUser);
   console.log("API Key:", apiKey);
