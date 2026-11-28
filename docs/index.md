@@ -11,7 +11,7 @@ hide:
   </svg>
   <div class="pm-hero__eyebrow">
     <span class="pm-hero__eyebrow-line" aria-hidden="true"></span>
-    <span>TypeScript / JavaScript SDK version 1.2.1</span>
+    <span>TypeScript / JavaScript SDK version 1.2.2</span>
   </div>
   <h1 class="pm-hero__title">JS MoMo SDK for African Mobile Money and Payment Rails</h1>
   <p class="pm-hero__lead">A zero-dependency, strictly typed TypeScript and JavaScript SDK for MTN Mobile Money, Airtel Money, Wave, Safaricom M-Pesa, Paystack, Flutterwave, and Orange Money behind a unified <code>PaymentRouter</code>. Ships dual ESM and CommonJS bundles with automatic token caching, strict input validation, and verified webhook security.</p>

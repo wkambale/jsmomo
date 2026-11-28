@@ -1,6 +1,6 @@
 # Sandbox provisioning
 
-Before calling MTN MoMo Sandbox endpoints, you must create a sandbox **API User** (a UUID v4) and generate its **API Key** using your product's `Ocp-Apim-Subscription-Key`.
+Before calling MTN MoMo Sandbox endpoints, you must create a sandbox **API User** (a UUID v4) and generate its **API Key** using your product's `Ocp-Apim-Subscription-Key`. `SandboxProvisioner` automatically normalizes `callbackHost` to `hostname[:port]` (stripping any `https://` scheme or path) and refuses production hosts (`proxy.momoapi.mtn.com` and `momoapi.momo.africa`).
 
 ## Programmatic provisioning
 

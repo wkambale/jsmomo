@@ -4,6 +4,29 @@ All notable changes to **JS MoMo SDK** (`js-momo-sdk`) are documented in this fi
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-11-28
+
+### Security
+- **Universal Wave request signing & Shared Secret webhooks (#87, #96):** Sign all 10 `WaveClient` endpoints (`Wave-Signature: t=<ts>,v1=<hmac>`, signing `""` on `GET` and bodyless `POST` requests) when `signingSecret` is configured, and add constant-time `WaveClient.verifySharedSecretWebhook()` (`Authorization: Bearer <secret>`).
+- **Strict CLI option parsing & secret-leak prevention (#88, #98):** Reject unknown flags, bare `--`, and missing option values across all CLI commands (`exit code 1`, empty `stdout`) so malformed invocations can never swallow `--output-file` or print `api_key` to stdout; add `--encoding <hex|base64>` to `js-momo-sdk webhook verify`.
+- **Expanded secret redaction & PII telemetry scrubbing (#93, #103):** Add `signingSecret`, `privateKey`, `encryptionKey`, `x-key`, and `x-signature` to `SENSITIVE_BODY_KEYS`, redact subscriber identifiers on `/standard/v1/users/{msisdn}` and `/collection/v2_0/user/{id}/basicuserinfo` in `sanitizeTelemetryPath()`, add `toString()`/`toJSON()`/`[inspect.custom]()` to `JsMomoSDKConfig`, and block MTN's One API production host (`https://momoapi.momo.africa`) in `SandboxProvisioner`.
+- **Dependency & CI invariant hardening (#97, #103):** Upgrade pinned GitHub Actions (`checkout@v7.0.1`, `setup-node@v7.1.0`, `setup-python@v7.1.0`, `configure-pages@v6.0.0`, `upload-pages-artifact@v5.0.0`, `deploy-pages@v5.0.1`, `upload-artifact@v7.0.2`, `download-artifact@v8.0.2`), `mkdocs-material`, TypeScript 6, ESLint 10, Vitest 5, and `@types/node`, and embed a permanent CI invariant suite (`tests/unit/invariants.test.ts`) verifying secret-canary redaction, Francophone UTF-8 preservation, 151-prefix carrier resolution, and strict TypeScript compilation of every documentation snippet.
+
+### Added
+- **MTN MoMo PreApproval, Delivery Notification & Cash Transfer (#89, #99):** Add `Collection.requestToPayDeliveryNotification()`, `Collection.preApprove()`, `Collection.getPreApprovalStatus()` (`PreApprovalResult`), `Remittance.cashTransfer()`, `Remittance.getCashTransferStatus()`, and `ONE_API_PRODUCTION_BASE_URL` (`"https://momoapi.momo.africa"`).
+- **Safaricom M-Pesa MSISDN helper, Account Balance & Reversal (#86, #95):** Export `normaliseMpesaMsisdn()` (`07...`, `01...`, `7...`, `1...`, `+254...`, `00254...` -> `254[17]XXXXXXXX`), and add `MpesaClient.accountBalance()` (`POST /mpesa/accountbalance/v1/query`) and `MpesaClient.reverseTransaction()` (`POST /mpesa/reversal/v1/request`).
+- **Paystack direct MoMo charges, bank directory & refunds (#90, #100):** Add `channels` and `metadata` to `initializeTransaction()`, plus `PaystackClient.chargeMobileMoney()` (`POST /charge`), `listBanks()` (`GET /bank`), and `createRefund()` (`POST /refund`).
+- **Flutterwave direct MoMo charges, transfer reference lookup & refunds (#91, #101):** Add `FlutterwaveClient.chargeMobileMoney()` (`POST /v3/charges?type=...`), `verifyTransaction()`, `createRefund()`, `getTransferByReference()` (`GET /v3/transfers?reference=...`), `destinationBranchCode` on `createTransfer()`, and automatic reference-vs-ID routing in `FlutterwaveProvider.getStatus()`.
+- **UTF-8 text validator (#85, #94):** Export `validatePrintableText()` for human-facing UTF-8 names, references, and notes while rejecting control/line-separator characters.
+
+### Fixed
+- **Orange Money WebPay wire constraints & `MGA` amounts (#85, #94):** Generate compact `<= 30`-char `orderId`s (`om_<24hex>`), deterministically compact UUID references in `OrangeMoneyProvider.collect()`, enforce `order_id <= 30`, `reference <= 30` (preserving UTF-8 Francophone labels), and callback URLs `<= 120`, and include `MGA` in `ORANGE_INTEGER_CURRENCIES`.
+- **Wave field length caps & aggregated merchants (#87, #96):** Enforce `payment_reason <= 40` (truncating `payerMessage` in `WaveProvider.disburse()`) and `client_reference <= 255`, and add `aggregatedMerchantId` to `WaveCheckoutParams`.
+- **MTN Sandbox `providerCallbackHost` normalization (#89, #99):** Strip URL schemes/paths to `hostname[:port]` in `SandboxProvisioner.createApiUser()` and support `:port` in `validateCallbackHost()`.
+- **Paystack transfer reference format (#90, #100):** Enforce `/^[a-z0-9_-]{16,50}$/` on `PaystackClient.initiateTransfer()` and normalize UUIDs in `PaystackProvider.disburse()`.
+- **Flutterwave numeric amounts & UTF-8 beneficiary names (#91, #101):** Serialize `amount` as a JSON number on Flutterwave transfers, direct MoMo charges, and refunds, and allow non-ASCII UTF-8 `beneficiaryName` values (e.g. `"Mamadou Koné"`).
+- **Airtel/MTN market currencies, currency-aware router fallback & Airtel error surfacing (#92, #102):** Add `GHS`, `CDF`, `USD`, `MGA`, `SCR` to `AIRTEL_CAPABILITIES` and `USD` to `MTN_CAPABILITIES`, fall back to currency-compatible registered providers in `PaymentRouter.resolveCandidates()`, preserve 5xx/timeout errors during `AirtelClient` 401 refresh, and invoke `checkAirtelResponseStatus()` on HTTP 200 error envelopes lacking `data.transaction`.
+
 ## [1.2.1] - 2026-11-27
 
 ### Security

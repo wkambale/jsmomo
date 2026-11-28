@@ -8,9 +8,9 @@
   [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 </div>
 
-JS MoMo SDK (`js-momo-sdk` 1.2.1) is a zero-runtime-dependency, strictly typed TypeScript and JavaScript client library for MTN Mobile Money (MoMo), Airtel Money, Wave, Safaricom M-Pesa (Daraja), Paystack, Flutterwave, and Orange Money behind a unified `PaymentRouter`. It ships dual ESM and CommonJS bundles with full `.d.ts` declarations, automatic OAuth2 token caching, strict input validation, structured error diagnostics, and verified webhook security.
+JS MoMo SDK (`js-momo-sdk` 1.2.2) is a zero-runtime-dependency, strictly typed TypeScript and JavaScript client library for MTN Mobile Money (MoMo), Airtel Money, Wave, Safaricom M-Pesa (Daraja), Paystack, Flutterwave, and Orange Money behind a unified `PaymentRouter`. It ships dual ESM and CommonJS bundles with full `.d.ts` declarations, automatic OAuth2 token caching, strict input validation, structured error diagnostics, and verified webhook security.
 
-- **npm package:** [js-momo-sdk](https://www.npmjs.com/package/js-momo-sdk) (`1.2.1`, inspectable via `VERSION`)
+- **npm package:** [js-momo-sdk](https://www.npmjs.com/package/js-momo-sdk) (`1.2.2`, inspectable via `VERSION`)
 - **Runtime support:** Node.js 18+ (zero runtime dependencies, backed by native `fetch` and `node:crypto`)
 - **Documentation:** [https://wkambale.github.io/jsmomo/](https://wkambale.github.io/jsmomo/)
 - **Repository:** [https://github.com/wkambale/jsmomo](https://github.com/wkambale/jsmomo)
@@ -19,8 +19,8 @@ JS MoMo SDK (`js-momo-sdk` 1.2.1) is a zero-runtime-dependency, strictly typed T
 
 - **Zero runtime dependencies & dual ESM/CJS:** Native `fetch`, `node:crypto`, and `node:http` with strict TypeScript types (`dist/index.js`, `dist/index.cjs`, `dist/index.d.ts`, `dist/index.d.cts`).
 - **Automated token caching:** Single-flight OAuth2 token refresh with monotonic expiry tracking, conditional `expectedToken` invalidation, and automatic 401 retry-once logic.
-- **Comprehensive African payment coverage:** MTN MoMo Collection (including CIBA `bcAuthorize` and OAuth2 token exchange/refresh), Disbursement (`transfer`, `deposit`, `refund`), Remittance, and Sandbox Provisioning; Airtel Money (`AirtelClient` with native RSA `encryptAirtelPin()`); Wave; Safaricom M-Pesa (Daraja); Paystack; Flutterwave; and Orange Money behind `PaymentRouter`.
-- **Resilience and observability:** Bounded idempotent retries with `Retry-After` and CSPRNG jitter, streaming `maxResponseBytes` caps, HTTP `3xx` redirect rejection, `waitForSettlement()`, `TelemetryHook` observability events, 18-market MSISDN carrier detection, Express/Fastify/Fetch API webhook verifiers, and a local `js-momo-sdk mock` simulator.
+- **Comprehensive African payment coverage:** MTN MoMo Collection (including `preApprove`, `requestToPayDeliveryNotification`, CIBA `bcAuthorize`, and OAuth2 token exchange/refresh), Disbursement (`transfer`, `deposit`, `refund`), Remittance (`transfer`, cross-border `cashTransfer`), and Sandbox Provisioning; Airtel Money (`AirtelClient` with native RSA `encryptAirtelPin()`); Wave (full outbound `Wave-Signature` signing and HMAC/Shared-Secret webhooks); Safaricom M-Pesa Daraja (`normaliseMpesaMsisdn()`, STK Push/Query, B2C, Transaction Status, Account Balance, Reversal); Paystack (`chargeMobileMoney`, `listBanks`, `createRefund`, transfers); Flutterwave (`chargeMobileMoney`, `verifyTransaction`, `createRefund`, `getTransferByReference`); and Orange Money WebPay behind `PaymentRouter`.
+- **Resilience and observability:** Bounded idempotent retries with `Retry-After` and CSPRNG jitter, streaming `maxResponseBytes` caps, HTTP `3xx` redirect rejection, `waitForSettlement()`, `TelemetryHook` observability events, 19-market / 151-prefix MSISDN carrier detection with currency-aware router fallback, Express/Fastify/Fetch API webhook verifiers, and a local `js-momo-sdk mock` simulator.
 - **Structured error diagnostics:** Every error preserves `referenceId`, `statusCode`, `errorCode`, `reason`, `provider`, recursively redacted `responseBody`, and `attemptedReferences` across multi-rail failovers.
 - **Built-in CLI:** Executable `js-momo-sdk` binary for sandbox provisioning, collections, disbursements, remittances, Airtel PIN encryption, webhook verification, carrier lookup, and local mock server hosting.
 

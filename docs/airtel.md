@@ -1,6 +1,6 @@
 # Airtel Money
 
-JS MoMo SDK ships first-class support for the **Airtel Money Open API** across 15 African markets via `AirtelClient`, `AirtelConfig`, and `encryptAirtelPin()`.
+JS MoMo SDK ships first-class support for the **Airtel Money Open API** across 15+ African markets (including Uganda, Kenya, Tanzania, Rwanda, Zambia, Malawi, Nigeria, Ghana, DRC, Madagascar, Gabon, Congo-Brazzaville, Chad, Niger, and Seychelles) via `AirtelClient`, `AirtelConfig`, and `encryptAirtelPin()`.
 
 ## Encrypting the disbursement PIN
 

@@ -2,6 +2,15 @@
 
 All notable changes to **JS MoMo SDK** (`js-momo-sdk`) are listed below.
 
+## 1.2.2 — 2026-11-28
+
+Pan-African real-rail wire parity, multi-gateway direct mobile money APIs, secret/telemetry hardening, and permanent CI invariant verification release (#85–#93, #94–#103):
+
+- **Orange Money & Wave wire compliance (#85, #87, #94, #96):** Enforce Orange WebPay `order_id <= 30`, UTF-8 `reference <= 30`, callback URLs `<= 120`, and `MGA` integer amounts; sign all 10 `WaveClient` endpoints with `Wave-Signature`, enforce `payment_reason <= 40` and `client_reference <= 255`, add `aggregatedMerchantId` on checkouts, and add `WaveClient.verifySharedSecretWebhook()`.
+- **Safaricom M-Pesa, Paystack & Flutterwave completeness (#86, #90, #91, #95, #100, #101):** Export `normaliseMpesaMsisdn()` and add `MpesaClient.accountBalance()` and `reverseTransaction()`; enforce Paystack `/^[a-z0-9_-]{16,50}$/` transfer references and add `channels`, `metadata`, `chargeMobileMoney()`, `listBanks()`, and `createRefund()`; serialize numeric `amount` on Flutterwave transfers/charges/refunds, allow UTF-8 `beneficiaryName`, and add `destinationBranchCode`, `getTransferByReference()`, `chargeMobileMoney()`, `verifyTransaction()`, and `createRefund()`.
+- **MTN MoMo & Airtel Money parity + currency-aware routing (#89, #92, #99, #102):** Normalize `providerCallbackHost` to `hostname[:port]`, export and guard `ONE_API_PRODUCTION_BASE_URL` (`https://momoapi.momo.africa`), and add `requestToPayDeliveryNotification()`, `preApprove()`, `getPreApprovalStatus()`, `cashTransfer()`, and `getCashTransferStatus()`; add `GHS`, `CDF`, `USD`, `MGA`, `SCR` to Airtel capabilities and `USD` to MTN capabilities, add currency-aware fallback in `PaymentRouter`, and preserve Airtel 401-refresh 5xx errors and HTTP 200 rejections.
+- **CLI, redaction, dependencies & permanent CI invariants (#88, #93, #97, #98, #103):** Reject unknown/missing-value CLI flags strictly and add `webhook verify --encoding <hex|base64>`; redact `signingSecret`/key fields in `responseBody`, scrub `/standard/v1/users/{msisdn}` and `/collection/v2_0/user/{id}/basicuserinfo` in telemetry, add `JsMomoSDKConfig` redaction hooks, upgrade GitHub Actions and toolchain dependencies, and enforce permanent secret-canary, UTF-8, 151-prefix, and doc-snippet TypeScript compilation invariants in CI.
+
 ## 1.2.1 — 2026-11-27
 
 End-to-end real-rail parity, API completeness, retry safety, and supply-chain hardening release addressing all 19 verified audit issues (#31–#47, #49, #56):

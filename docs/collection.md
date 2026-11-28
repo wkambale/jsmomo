@@ -19,7 +19,28 @@ const referenceId = await client.collection.requestToPay({
 const status = await client.collection.getPaymentStatus(referenceId);
 if (status.isSuccessful()) {
   console.log("Financial TX:", status.financialTransactionId);
+  await client.collection.requestToPayDeliveryNotification(
+    referenceId,
+    "Order #42 confirmed — thank you!",
+    { language: "en" },
+  );
 }
+```
+
+## PreApproval (v2)
+
+Authorize recurring or pre-approved subscriber debits (`POST /collection/v2_0/preapproval`):
+
+```ts
+const preApprovalRef = await client.collection.preApprove({
+  payerMsisdn: "256772123456",
+  payerCurrency: "UGX",
+  payerMessage: "Authorize monthly subscription",
+  validityTime: 3600,
+});
+
+const preApproval = await client.collection.getPreApprovalStatus(preApprovalRef);
+console.log(preApproval.status, preApproval.expirationDateTime);
 ```
 
 ## Request to Withdraw (v2)
