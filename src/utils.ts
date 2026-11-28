@@ -542,6 +542,26 @@ export function validateHeaderValue(
   return value;
 }
 
+/** Validate a non-empty printable UTF-8 text field (rejecting control characters). */
+export function validatePrintableText(
+  value: string,
+  options: { fieldName: string; maxLength?: number },
+): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new RangeError(`${options.fieldName} must not be blank`);
+  }
+  const trimmed = value.trim();
+  if (CONTROL_CHAR_RE.test(trimmed)) {
+    throw new RangeError(`${options.fieldName} must not contain control characters`);
+  }
+  if (options.maxLength !== undefined && trimmed.length > options.maxLength) {
+    throw new RangeError(
+      `${options.fieldName} must not exceed ${options.maxLength} characters`,
+    );
+  }
+  return trimmed;
+}
+
 /** Validate a target environment header identifier. */
 export function validateEnvironmentName(environment: string): string {
   if (typeof environment !== "string" || !HEADER_TOKEN_RE.test(environment)) {

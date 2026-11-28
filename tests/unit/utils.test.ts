@@ -21,6 +21,7 @@ import {
   validateHeaderValue,
   validateMatchingOrigin,
   validateMaxRetries,
+  validatePrintableText,
   validateReferenceId,
   validateRequestPath,
   validateRetryBackoff,
@@ -340,5 +341,20 @@ describe("utils", () => {
       referenceId: "airtel-fail-99",
       reason: "Insufficient balance",
     });
+  });
+
+  it("validates printable UTF-8 text fields with control-character and length checks", () => {
+    expect(
+      validatePrintableText("  Boutique Sénégal  ", { fieldName: "reference" }),
+    ).toBe("Boutique Sénégal");
+    expect(() => validatePrintableText("   ", { fieldName: "reference" })).toThrow(
+      "must not be blank",
+    );
+    expect(() =>
+      validatePrintableText("Shop\r\nInjected", { fieldName: "reference" }),
+    ).toThrow("control characters");
+    expect(() =>
+      validatePrintableText("x".repeat(31), { fieldName: "reference", maxLength: 30 }),
+    ).toThrow("must not exceed 30 characters");
   });
 });

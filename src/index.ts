@@ -199,6 +199,7 @@ export {
   validateHeaderValue,
   validateMatchingOrigin,
   validateMaxRetries,
+  validatePrintableText,
   validateReferenceId,
   validateRequestPath,
   validateRetryBackoff,
