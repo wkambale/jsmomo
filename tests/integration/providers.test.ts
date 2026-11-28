@@ -227,9 +227,18 @@ describe("Pan-African Providers Integration", () => {
     let capturedWaveCheckoutBody: Record<string, unknown> | null = null;
     let capturedPayoutSig: string | null = null;
     let capturedPayoutBody: string | null = null;
+    const signedWaveCalls: Array<{ path: string; sig: string | null; body: string }> =
+      [];
     const calledWavePaths: string[] = [];
     const client = new WaveClient(cfg, {
       fetch: async (url, init) => {
+        const hdrs = (init?.headers ?? {}) as Record<string, string>;
+        const rawSentBody = typeof init?.body === "string" ? init.body : "";
+        signedWaveCalls.push({
+          path: `${init?.method ?? "GET"} ${new URL(url).pathname}`,
+          sig: hdrs["Wave-Signature"] ?? null,
+          body: rawSentBody,
+        });
         calledWavePaths.push(
           `${init?.method ?? "GET"} ${new URL(url).pathname}${new URL(url).search}`,
         );
@@ -380,15 +389,24 @@ describe("Pan-African Providers Integration", () => {
         amount: "2000",
         currency: "XOF",
         payeeMsisdn: "+221771234567",
+        payerMessage:
+          "Salary disbursement for November 2026 exceeding forty characters limit",
       }),
     );
     expect(dis.referenceId).toBe("pt-1");
+    expect(
+      String(
+        (JSON.parse(capturedPayoutBody ?? "{}") as Record<string, unknown>)[
+          "payment_reason"
+        ],
+      ).length,
+    ).toBeLessThanOrEqual(40);
     const disSt = await wave.getStatus("pt-1", { kind: "disbursement" });
     expect(disSt.isFailed()).toBe(true);
     expect(disSt.reason).toBe("E1: Wallet full");
     expect((await wave.getBalance()).availableBalance).toBe("75000");
 
-    // Issue #56: Outbound Wave-Signature on POST /v1/payout, refund/expire/reverse/search, and 30s webhook future skew
+    // Issue #56 & #87: Outbound Wave-Signature on ALL Wave endpoints (including GET & bodyless POST)
     expect(capturedPayoutSig).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
     verifyTimestampedHmacSignature(
       capturedPayoutBody ?? "",
@@ -396,6 +414,12 @@ describe("Pan-African Providers Integration", () => {
       "signsec_wave",
       { timestampSeparator: "" },
     );
+    await client.createCheckoutSession({
+      amount: "1000",
+      currency: "XOF",
+      aggregatedMerchantId: "am-senegal-01",
+    });
+    expect(capturedWaveCheckoutBody?.["aggregated_merchant_id"]).toBe("am-senegal-01");
     await client.refundCheckoutSession("cos-1");
     await client.expireCheckoutSession("cos-1");
     await client.reversePayout("pt-1");
@@ -405,11 +429,55 @@ describe("Pan-African Providers Integration", () => {
     const foundPayouts = await client.searchPayouts("p-1");
     expect(foundPayouts).toHaveLength(1);
     expect(foundPayouts[0]?.id).toBe("pt-1");
+    expect(signedWaveCalls.length).toBeGreaterThanOrEqual(10);
+    for (const call of signedWaveCalls) {
+      expect(call.sig).toMatch(/^t=\d+,v1=[0-9a-f]{64}$/);
+      verifyTimestampedHmacSignature(call.body, call.sig ?? "", "signsec_wave", {
+        timestampSeparator: "",
+      });
+    }
     expect(calledWavePaths).toContain("POST /v1/checkout/sessions/cos-1/refund");
     expect(calledWavePaths).toContain("POST /v1/checkout/sessions/cos-1/expire");
     expect(calledWavePaths).toContain("POST /v1/payout/pt-1/reverse");
     await expect(client.searchCheckoutSessions("   ")).rejects.toThrow("non-empty");
     await expect(client.searchPayouts("   ")).rejects.toThrow("non-empty");
+    await expect(client.searchCheckoutSessions("x".repeat(256))).rejects.toThrow(
+      "255 characters",
+    );
+    await expect(client.searchPayouts("x".repeat(256))).rejects.toThrow(
+      "255 characters",
+    );
+    await expect(
+      client.createCheckoutSession({
+        amount: "1000",
+        currency: "XOF",
+        clientReference: "x".repeat(256),
+      }),
+    ).rejects.toThrow("255 characters");
+    await expect(
+      client.createPayout({
+        amount: "1000",
+        currency: "XOF",
+        mobile: "+221771234567",
+        paymentReason: "r".repeat(41),
+      }),
+    ).rejects.toThrow("40 characters");
+
+    // Wave Shared Secret webhook verification (Authorization: Bearer <secret>)
+    client.verifySharedSecretWebhook("Bearer whsec_wave");
+    expect(() => client.verifySharedSecretWebhook("")).toThrow(
+      WebhookVerificationError,
+    );
+    expect(() => client.verifySharedSecretWebhook("Basic dGVzdA==")).toThrow(
+      WebhookVerificationError,
+    );
+    expect(() => client.verifySharedSecretWebhook("Bearer wrong_secret")).toThrow(
+      WebhookVerificationError,
+    );
+    const waveNoWhSec = new WaveClient({ apiKey: "k" });
+    expect(() => waveNoWhSec.verifySharedSecretWebhook("Bearer x")).toThrow(
+      "webhookSecret",
+    );
 
     // Wave webhook uses empty separator between ts and payload and 30s default future skew
     const now = 1700000000;
