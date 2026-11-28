@@ -611,6 +611,62 @@ describe("Airtel Money SDK", () => {
       statusCode: 401,
     });
 
+    // Issue #92: 401 token refresh failing with 503 preserves JsMomoSDKServerError instead of masking as AuthenticationError
+    let auth503Calls = 0;
+    const refresh503Client = new AirtelClient(
+      { clientId: "cid", clientSecret: "csec", country: "UG", currency: "UGX" },
+      {
+        fetch: async (url) => {
+          if (url.endsWith("/auth/oauth2/token")) {
+            auth503Calls += 1;
+            if (auth503Calls === 1) {
+              return jsonResp({ access_token: "tok1", expires_in: 3600 });
+            }
+            return jsonResp({ message: "Auth gateway unavailable" }, 503);
+          }
+          return jsonResp({ message: "expired" }, 401);
+        },
+      },
+    );
+    await expect(
+      refresh503Client.collection.requestToPay({
+        amount: "1000",
+        payerMsisdn: "256752123456",
+        referenceId: "REFRESH-503-REF",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      referenceId: "REFRESH-503-REF",
+      provider: "Airtel Money",
+    });
+
+    // Issue #92: HTTP 200 error envelope without data.transaction surfaces Airtel result_code & message
+    const noTxErrClient = new AirtelClient(
+      { clientId: "cid", clientSecret: "csec", country: "CD", currency: "CDF" },
+      {
+        fetch: async (url) => {
+          if (url.endsWith("/auth/oauth2/token")) {
+            return jsonResp({ access_token: "tok", expires_in: 3600 });
+          }
+          return jsonResp({
+            status: {
+              code: "200",
+              message: "Transaction not found",
+              result_code: "DP00800001006",
+              success: false,
+            },
+          });
+        },
+      },
+    );
+    await expect(
+      noTxErrClient.collection.getPaymentStatus("MISSING-CD-TX"),
+    ).rejects.toMatchObject({
+      referenceId: "MISSING-CD-TX",
+      errorCode: "DP00800001006",
+      reason: "DP00800001006: Transaction not found",
+    });
+
     // Oversize response attaches referenceId and telemetry
     const bigClient = new AirtelClient(
       { clientId: "cid", clientSecret: "csec", country: "UG", currency: "UGX" },

@@ -291,6 +291,11 @@ export function parseAirtelTransactionResponse(
       ? (dataObj as Record<string, unknown>)["transaction"]
       : null;
 
+  if (!txObj || typeof txObj !== "object" || Array.isArray(txObj)) {
+    if (status && status.success === false) {
+      checkAirtelResponseStatus(raw, { referenceId: referenceId ?? null });
+    }
+  }
   if (!status || !txObj || typeof txObj !== "object" || Array.isArray(txObj)) {
     throw new JsMomoSDKError(
       "API response did not match expected AirtelTransactionResponse schema",

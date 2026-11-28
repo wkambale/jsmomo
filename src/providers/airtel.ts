@@ -19,7 +19,22 @@ const AIRTEL_CAPABILITIES = new ProviderCapabilities({
   supportsDisbursement: true,
   supportsBalance: true,
   supportsWebhookHmac: true,
-  currencies: ["UGX", "KES", "TZS", "RWF", "ZMW", "MWK", "NGN", "XAF", "XOF"],
+  currencies: [
+    "UGX",
+    "KES",
+    "TZS",
+    "RWF",
+    "ZMW",
+    "MWK",
+    "NGN",
+    "GHS",
+    "XAF",
+    "XOF",
+    "CDF",
+    "USD",
+    "MGA",
+    "SCR",
+  ],
 });
 
 function checkAirtelCurrency(

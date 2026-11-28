@@ -456,7 +456,13 @@ export class AirtelClient {
       let newToken: string;
       try {
         newToken = await this.auth.getToken(this.fetchImpl);
-      } catch {
+      } catch (err) {
+        if (err instanceof JsMomoSDKError) {
+          if (err.referenceId === null && effectiveRef !== null) {
+            err.referenceId = effectiveRef;
+          }
+          throw err;
+        }
         throw new AuthenticationError(
           "Airtel authentication failed during token refresh",
           {

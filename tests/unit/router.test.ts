@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { AirtelClient } from "../../src/airtel/client.js";
 import { JsMomoSDK } from "../../src/client.js";
 import { ProductConfig } from "../../src/config.js";
 import {
@@ -10,7 +11,12 @@ import {
 } from "../../src/exceptions.js";
 import type { PaymentProvider } from "../../src/providers/index.js";
 import {
+  AirtelMoneyProvider,
   DisbursementRequest,
+  FlutterwaveClient,
+  FlutterwaveProvider,
+  MpesaClient,
+  MpesaProvider,
   MtnMomoProvider,
   NormalizedStatus,
   OrangeMoneyClient,
@@ -18,9 +24,14 @@ import {
   PaymentRequest,
   PaymentResult,
   PaymentRouter,
+  PaystackClient,
+  PaystackProvider,
   ProviderCapabilities,
+  WaveClient,
+  WaveProvider,
   isPaymentProvider,
 } from "../../src/providers/index.js";
+import { CARRIER_PREFIX_MAP } from "../../src/utils.js";
 
 function makeStubProvider(
   name: string,
@@ -408,5 +419,144 @@ describe("PaymentRouter", () => {
     }
 
     await router.close();
+  });
+
+  it("verifies all 151 CARRIER_PREFIX_MAP entries against real provider capabilities and currency-aware router fallback (Issue #92)", async () => {
+    const COUNTRY_CURRENCIES: Record<string, string[]> = {
+      UG: ["UGX"],
+      GH: ["GHS"],
+      KE: ["KES"],
+      TZ: ["TZS"],
+      RW: ["RWF"],
+      ZM: ["ZMW"],
+      MW: ["MWK"],
+      CD: ["CDF", "USD"],
+      ET: ["ETB"],
+      CM: ["XAF"],
+      NG: ["NGN"],
+      ZA: ["ZAR"],
+      CI: ["XOF"],
+      SN: ["XOF"],
+      BJ: ["XOF"],
+      CG: ["XAF"],
+      LR: ["LRD", "USD"],
+      GN: ["GNF"],
+      SZ: ["SZL"],
+    };
+
+    const mtn = new MtnMomoProvider(new JsMomoSDK());
+    const airtel = new AirtelMoneyProvider(
+      new AirtelClient({
+        clientId: "cid",
+        clientSecret: "csec",
+        country: "CD",
+        currency: "CDF",
+      }),
+    );
+    const mpesa = new MpesaProvider(
+      new MpesaClient({
+        consumerKey: "ck",
+        consumerSecret: "cs",
+        shortCode: "174379",
+        passkey: "pk",
+      }),
+    );
+    const orange = new OrangeMoneyProvider(
+      new OrangeMoneyClient({
+        clientId: "cid",
+        clientSecret: "csec",
+        merchantKey: "mk",
+      }),
+    );
+    const wave = new WaveProvider(new WaveClient({ apiKey: "wk" }));
+    const paystack = new PaystackProvider(new PaystackClient({ secretKey: "sk_test" }));
+    const flutterwave = new FlutterwaveProvider(
+      new FlutterwaveClient({ secretKey: "FLWSECK_TEST-1" }),
+    );
+    const allProviders: Record<string, PaymentProvider> = {
+      mtn_momo: mtn,
+      airtel_money: airtel,
+      mpesa,
+      orange_money: orange,
+      wave,
+      paystack,
+      flutterwave,
+    };
+
+    expect(airtel.capabilities.currencies).toEqual(
+      expect.arrayContaining(["GHS", "CDF", "USD", "MGA", "SCR"]),
+    );
+    expect(mtn.capabilities.currencies).toContain("USD");
+
+    for (const [prefix, country, providerName] of CARRIER_PREFIX_MAP) {
+      const currencies = COUNTRY_CURRENCIES[country];
+      expect(currencies, `Missing test currency map for ${country}`).toBeDefined();
+      // Moov Africa (22501 CI) and non-Kenyan Vodacom/Safaricom M-Pesa (TZ/CD/ET) are carrier-detected and routed via currency-compatible fallback
+      if (providerName === "moov_money") {
+        expect(mtn.capabilities.currencies).toContain("XOF");
+        continue;
+      }
+      const target = allProviders[providerName]!;
+      expect(target, `Unknown provider ${providerName} for ${prefix}`).toBeDefined();
+      if (providerName === "mpesa" && country !== "KE") {
+        continue;
+      }
+      for (const ccy of currencies!) {
+        expect(
+          target.capabilities.currencies,
+          `Prefix ${prefix} (${country} -> ${providerName}) missing ${ccy}`,
+        ).toContain(ccy);
+      }
+    }
+
+    // Currency-aware fallback when neither carrier-inferred provider (mpesa -> KES) nor defaultProvider (mtn_momo) supports TZS / GMD
+    const tzsStub = makeStubProvider("flutterwave", { currencies: ["TZS"] });
+    const gmdStub = makeStubProvider("wave", { currencies: ["GMD"] });
+    const multiRouter = new PaymentRouter({
+      providers: [
+        makeStubProvider("mtn_momo", { currencies: ["UGX"] }),
+        makeStubProvider("mpesa", { currencies: ["KES"] }),
+        tzsStub,
+        gmdStub,
+      ],
+      defaultProvider: "mtn_momo",
+    });
+
+    const tzRes = await multiRouter.collect(
+      new PaymentRequest({
+        amount: "2000",
+        currency: "TZS",
+        payerMsisdn: "+255741234567",
+      }),
+    );
+    expect(tzRes.provider).toBe("flutterwave");
+
+    const gmRes = await multiRouter.collect(
+      new PaymentRequest({
+        amount: "500",
+        currency: "GMD",
+        payerMsisdn: "+2207123456",
+      }),
+    );
+    expect(gmRes.provider).toBe("wave");
+
+    const cdMpesaFallback = new PaymentRouter({
+      providers: [
+        makeStubProvider("mpesa", { currencies: ["KES"] }),
+        makeStubProvider("airtel_money", { currencies: ["CDF", "USD"] }),
+      ],
+      defaultProvider: "mpesa",
+    });
+    const cdRes = await cdMpesaFallback.collect(
+      new PaymentRequest({
+        amount: "5000",
+        currency: "CDF",
+        payerMsisdn: "+243811234567",
+      }),
+    );
+    expect(cdRes.provider).toBe("airtel_money");
+    await cdMpesaFallback.close();
+
+    await multiRouter.close();
   });
 });
