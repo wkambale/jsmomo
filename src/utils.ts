@@ -689,10 +689,23 @@ export function validateCallbackHost(
   if (callbackHost.includes("://")) {
     return validateCallbackUrl(callbackHost, { allowLocalhost });
   }
-  if (callbackHost.length > 253 || !BARE_HOST_RE.test(callbackHost)) {
+  let hostPart = callbackHost;
+  const colonIdx = callbackHost.indexOf(":");
+  if (colonIdx !== -1) {
+    hostPart = callbackHost.slice(0, colonIdx);
+    const portPart = callbackHost.slice(colonIdx + 1);
+    if (!/^\d{1,5}$/.test(portPart)) {
+      throw new RangeError("Callback host must be a valid hostname or HTTPS URL");
+    }
+    const portNum = Number(portPart);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      throw new RangeError("Callback host port must be between 1 and 65535");
+    }
+  }
+  if (hostPart.length > 253 || !BARE_HOST_RE.test(hostPart)) {
     throw new RangeError("Callback host must be a valid hostname or HTTPS URL");
   }
-  if (isDisallowedIpHost(callbackHost, allowLocalhost)) {
+  if (isDisallowedIpHost(hostPart, allowLocalhost)) {
     throw new RangeError("Callback host is not allowed");
   }
   return callbackHost;

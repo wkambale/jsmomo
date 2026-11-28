@@ -22,6 +22,7 @@ const MTN_WRITE_PATHS = new Set([
   "/disbursement/v2_0/deposit",
   "/disbursement/v2_0/refund",
   "/remittance/v1_0/transfer",
+  "/remittance/v2_0/cashtransfer",
 ]);
 const MTN_STATUS_PREFIXES = [
   "/collection/v1_0/requesttopay/",
@@ -33,6 +34,7 @@ const MTN_STATUS_PREFIXES = [
   "/disbursement/v1_0/refund/",
   "/disbursement/v2_0/refund/",
   "/remittance/v1_0/transfer/",
+  "/remittance/v2_0/cashtransfer/",
 ] as const;
 const BALANCE_PATHS = new Set([
   "/collection/v1_0/account/balance",
@@ -65,6 +67,7 @@ export class MockGatewayState {
   public defaultStatus: "PENDING" | "SUCCESSFUL" | "FAILED";
   public readonly maxEntries: number;
   public readonly transactions = new Map<string, Record<string, unknown>>();
+  public readonly preApprovals = new Map<string, Record<string, unknown>>();
   public readonly airtelTransactions = new Map<string, Record<string, unknown>>();
   public readonly waveSessions = new Map<string, Record<string, unknown>>();
   public readonly wavePayouts = new Map<string, Record<string, unknown>>();
@@ -315,13 +318,27 @@ export function createMockServer(options: MockServerOptions = {}): {
 
       if (path === "/v1_0/apiuser") {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const cbHost = body["providerCallbackHost"] ?? "example.com";
+        if (
+          typeof cbHost !== "string" ||
+          !cbHost.trim() ||
+          cbHost.includes("://") ||
+          cbHost.includes("/")
+        ) {
+          sendJson(res, 400, {
+            code: "INVALID_CALLBACK_URL_HOST",
+            message:
+              "providerCallbackHost must be a bare hostname without scheme or path",
+          });
+          return;
+        }
         const ref = headerStr(req, "X-Reference-Id") || "mock-user";
         if (state.sandboxUsers.has(ref)) {
           sendJson(res, 409, { message: "Duplicate X-Reference-Id" });
           return;
         }
         state.putBounded(state.sandboxUsers, ref, {
-          providerCallbackHost: body["providerCallbackHost"] ?? "example.com",
+          providerCallbackHost: cbHost,
           targetEnvironment: "sandbox",
         });
         sendJson(res, 201, { reference_id: ref });
@@ -343,6 +360,17 @@ export function createMockServer(options: MockServerOptions = {}): {
 
       if (MTN_WRITE_PATHS.has(path)) {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        if (
+          path === "/remittance/v2_0/cashtransfer" &&
+          (typeof body["orginatingCountry"] !== "string" ||
+            !/^[A-Z]{2}$/.test(body["orginatingCountry"]))
+        ) {
+          sendJson(res, 400, {
+            code: "INVALID_PARAMETER",
+            message: "orginatingCountry must be a 2-letter ISO country code",
+          });
+          return;
+        }
         const ref = headerStr(req, "X-Reference-Id") || "mock-ref";
         if (state.transactions.has(ref)) {
           sendJson(res, 409, { message: "Duplicate X-Reference-Id" });
@@ -354,6 +382,49 @@ export function createMockServer(options: MockServerOptions = {}): {
           amount: body["amount"] ?? "100",
           currency: body["currency"] ?? "UGX",
           status: state.defaultStatus,
+        });
+        sendJson(res, 202, { reference_id: ref });
+        return;
+      }
+
+      if (
+        path.startsWith("/collection/v1_0/requesttopay/") &&
+        path.endsWith("/deliverynotification")
+      ) {
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const ref = decodeURIComponent(
+          path.slice(
+            "/collection/v1_0/requesttopay/".length,
+            -"/deliverynotification".length,
+          ),
+        );
+        const msg =
+          body["notificationMessage"] ?? headerStr(req, "notificationMessage");
+        if (typeof msg !== "string" || !msg.trim() || msg.length > 160) {
+          sendJson(res, 400, { message: "Invalid notificationMessage" });
+          return;
+        }
+        if (!state.transactions.has(ref)) {
+          sendJson(res, 404, { message: "Not found" });
+          return;
+        }
+        sendJson(res, 200, {});
+        return;
+      }
+
+      if (path === "/collection/v2_0/preapproval") {
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const ref = headerStr(req, "X-Reference-Id") || "mock-pa-ref";
+        if (state.preApprovals.has(ref)) {
+          sendJson(res, 409, { message: "Duplicate X-Reference-Id" });
+          return;
+        }
+        state.putBounded(state.preApprovals, ref, {
+          payer: body["payer"] ?? { partyIdType: "MSISDN", partyId: "256771234567" },
+          payerCurrency: body["payerCurrency"] ?? "UGX",
+          payerMessage: body["payerMessage"] ?? "",
+          status: state.defaultStatus,
+          expirationDateTime: 3600,
         });
         sendJson(res, 202, { reference_id: ref });
         return;
@@ -745,6 +816,17 @@ export function createMockServer(options: MockServerOptions = {}): {
           return;
         }
         sendJson(res, 200, user);
+        return;
+      }
+
+      const preApprovalRef = extractSingleSuffix(path, "/collection/v2_0/preapproval/");
+      if (preApprovalRef !== null) {
+        const pa = state.preApprovals.get(preApprovalRef);
+        if (!pa) {
+          sendJson(res, 404, { message: "Not found" });
+          return;
+        }
+        sendJson(res, 200, pa);
         return;
       }
 

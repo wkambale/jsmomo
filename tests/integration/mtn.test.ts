@@ -2,7 +2,7 @@ import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 
 import { JsMomoSDK } from "../../src/client.js";
-import { MTN_UGANDA, SANDBOX } from "../../src/config.js";
+import { MTN_UGANDA, ONE_API_PRODUCTION_BASE_URL, SANDBOX } from "../../src/config.js";
 import {
   AuthenticationError,
   JsMomoSDKError,
@@ -84,6 +84,21 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
           if (url.endsWith("/requesttopay") || url.endsWith("/requesttowithdraw")) {
             return new Response(null, { status: 202 });
           }
+          if (url.endsWith("/deliverynotification")) {
+            return jsonResp({}, 200);
+          }
+          if (url.endsWith("/collection/v2_0/preapproval")) {
+            return new Response(null, { status: 202 });
+          }
+          if (url.includes("/collection/v2_0/preapproval/")) {
+            return jsonResp({
+              payer: { partyIdType: "MSISDN", partyId: "256771234567" },
+              payerCurrency: "UGX",
+              payerMessage: "Monthly subscription",
+              status: "SUCCESSFUL",
+              expirationDateTime: 3600,
+            });
+          }
           if (url.includes("/requesttopay/") || url.includes("/requesttowithdraw/")) {
             return jsonResp({
               financialTransactionId: "fin-1",
@@ -128,6 +143,7 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
           }
           if (
             url.endsWith("/transfer") ||
+            url.endsWith("/cashtransfer") ||
             url.endsWith("/deposit") ||
             url.endsWith("/refund")
           ) {
@@ -135,6 +151,7 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
           }
           if (
             url.includes("/transfer/") ||
+            url.includes("/cashtransfer/") ||
             url.includes("/deposit/") ||
             url.includes("/refund/")
           ) {
@@ -266,15 +283,71 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
       externalId: "rem-1",
     });
     expect((await sdk.remittance.getTransferStatus(remRef)).isSuccessful()).toBe(true);
+
+    // Issue #89: requestToPayDeliveryNotification (ASCII & UTF-8), PreApproval v2, and Remittance cashTransfer v2
+    await sdk.collection.requestToPayDeliveryNotification(
+      payRef,
+      "Payment received. Thank you!",
+      { language: "en" },
+    );
+    await sdk.collection.requestToPayDeliveryNotification({
+      referenceId: payRef,
+      notificationMessage: "Paiement reçu avec succès",
+      language: "fr",
+    });
+    await expect(
+      sdk.collection.requestToPayDeliveryNotification(payRef, "   "),
+    ).rejects.toThrow("non-empty");
+
+    const paRef = await sdk.collection.preApprove({
+      payerMsisdn: "256771234567",
+      payerCurrency: "UGX",
+      payerMessage: "Monthly subscription",
+      validityTime: 3600,
+    });
+    const paStatus = await sdk.collection.getPreApprovalStatus(paRef);
+    expect(paStatus.isSuccessful()).toBe(true);
+    expect(paStatus.payerCurrency).toBe("UGX");
+    expect(paStatus.expirationDateTime).toBe(3600);
+    await expect(
+      sdk.collection.preApprove({
+        payerMsisdn: "256771234567",
+        payerCurrency: "UGX",
+        validityTime: 0,
+      }),
+    ).rejects.toThrow("positive integer");
+
+    const ctRef = await sdk.remittance.cashTransfer({
+      amount: "500",
+      currency: "UGX",
+      payeeMsisdn: "256771234567",
+      externalId: "rem-ct-1",
+      originatingCountry: "ug",
+    });
+    const ctReq = requests.find((r) => r.url.endsWith("/remittance/v2_0/cashtransfer"));
+    expect(JSON.parse(ctReq?.body ?? "{}")).toMatchObject({
+      orginatingCountry: "UG",
+      originalAmount: "500",
+      originalCurrency: "UGX",
+    });
+    expect((await sdk.remittance.getCashTransferStatus(ctRef)).isSuccessful()).toBe(
+      true,
+    );
     expect(requests.length).toBeGreaterThan(10);
   });
 
   it("provisions sandbox credentials with redacted output and blocks production provisioning", async () => {
+    const seenCallbackHosts: string[] = [];
     const sdk = new JsMomoSDK(
       { environment: SANDBOX },
       {
-        fetch: async (url) => {
+        fetch: async (url, init) => {
           if (url.endsWith("/v1_0/apiuser")) {
+            const parsed = JSON.parse(String(init?.body ?? "{}")) as Record<
+              string,
+              unknown
+            >;
+            seenCallbackHosts.push(String(parsed["providerCallbackHost"] ?? ""));
             return new Response(null, { status: 201 });
           }
           if (url.endsWith("/apikey")) {
@@ -292,7 +365,18 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     expect(JSON.stringify(provisioner)).not.toContain("sandbox-sub-key");
     expect(provisioner.toJSON()["subscriptionKey"]).toBe("<redacted>");
 
-    const creds = await provisioner.provision({ callbackHost: "merchant.example.com" });
+    const creds = await provisioner.provision({
+      callbackHost: "https://merchant.example.com/webhooks/mtn",
+    });
+    expect(seenCallbackHosts[0]).toBe("merchant.example.com");
+    await provisioner.createApiUser({
+      callbackHost: "https://merchant.example.com:8443/cb",
+    });
+    expect(seenCallbackHosts[1]).toBe("merchant.example.com:8443");
+    await provisioner.createApiUser({
+      callbackHost: "merchant.example.com:8443",
+    });
+    expect(seenCallbackHosts[2]).toBe("merchant.example.com:8443");
     expect(creds.apiKey).toBe("sandbox-secret-key");
     expect(inspect(creds)).not.toContain("sandbox-secret-key");
     expect(inspect(creds)).not.toContain(creds.apiUser);
@@ -300,7 +384,8 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     const info = await provisioner.getApiUser(creds.apiUser);
     expect(info.providerCallbackHost).toBe("merchant.example.com");
 
-    // Production environment and trailing-dot production host refuse SandboxProvisioner (Issue #17)
+    // Production environment, legacy proxy host, and One API momoapi.momo.africa host refuse SandboxProvisioner (Issue #17 & #89)
+    expect(ONE_API_PRODUCTION_BASE_URL).toBe("https://momoapi.momo.africa");
     const prodSdk = new JsMomoSDK({ environment: MTN_UGANDA });
     expect(() => prodSdk.createSandboxProvisioner("sub")).toThrow(JsMomoSDKError);
     const trailingDotProdSdk = new JsMomoSDK({
@@ -310,6 +395,11 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     expect(() => trailingDotProdSdk.createSandboxProvisioner("sub")).toThrow(
       JsMomoSDKError,
     );
+    const oneApiProdSdk = new JsMomoSDK({
+      environment: SANDBOX,
+      baseUrl: ONE_API_PRODUCTION_BASE_URL,
+    });
+    expect(() => oneApiProdSdk.createSandboxProvisioner("sub")).toThrow(JsMomoSDKError);
 
     // sdk.sandbox getter uses configured product subscriptionKey
     const sandboxWithCol = new JsMomoSDK(
@@ -333,6 +423,7 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
       ApiKeyResult,
       BcAuthorizeResponse,
       OAuth2TokenResponse,
+      PreApprovalResult,
       ProvisionResult,
       TokenResponse,
       TransactionResult,
@@ -340,6 +431,7 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
       parseBalanceResponse,
       parseBcAuthorizeResponse,
       parseOAuth2TokenResponse,
+      parsePreApprovalResultResponse,
       parseTokenResponse,
       parseTransactionResultResponse,
     } = await import("../../src/models.js");
@@ -383,11 +475,27 @@ describe("MTN MoMo SDK (JsMomoSDK)", () => {
     expect(tx.isPending()).toBe(true);
     expect(tx.payer?.partyId).toBe("256771234567");
 
+    const paPending = new PreApprovalResult({
+      status: "PENDING",
+      reason: "Awaiting user approval",
+    });
+    expect(paPending.isPending()).toBe(true);
+    expect(paPending.isFailed()).toBe(false);
+    expect(paPending.reason).toBe("Awaiting user approval");
+    const paFailed = new PreApprovalResult({
+      status: "FAILED",
+      reason: { code: "REJECTED", message: "Declined by payer" },
+    });
+    expect(paFailed.isFailed()).toBe(true);
+    expect(paFailed.reasonCode).toBe("REJECTED");
+    expect(paFailed.reason).toBe("REJECTED: Declined by payer");
+
     // Schema mismatch raises JsMomoSDKError preserving referenceId
     const bad = await readBoundedResponse(jsonResp({ unexpected: true }), 1024);
     for (const fn of [
       () => parseBalanceResponse(bad, "r1"),
       () => parseTransactionResultResponse(bad, "r1"),
+      () => parsePreApprovalResultResponse(bad, "r1"),
       () => parseTokenResponse(bad, "r1"),
       () => parseOAuth2TokenResponse(bad, "r1"),
       () => parseBcAuthorizeResponse(bad, "r1"),
