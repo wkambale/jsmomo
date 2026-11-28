@@ -73,6 +73,159 @@ const BOOLEAN_FLAGS = new Set([
   "allow-non-loopback",
 ]);
 
+const VALUE_FLAGS = new Set([
+  "signature",
+  "s",
+  "secret",
+  "secret-file",
+  "payload-file",
+  "algorithm",
+  "encoding",
+  "timestamp-separator",
+  "tolerance-seconds",
+  "subscription-key",
+  "k",
+  "subscription-key-file",
+  "callback-host",
+  "c",
+  "output-file",
+  "api-user",
+  "u",
+  "api-key",
+  "p",
+  "api-key-file",
+  "environment",
+  "e",
+  "base-url",
+  "timeout",
+  "max-retries",
+  "retry-backoff",
+  "currency",
+  "payer-message",
+  "payee-note",
+  "reference-id",
+  "callback-url",
+  "public-key-file",
+  "pin",
+  "pin-file",
+  "client-id",
+  "client-secret",
+  "client-secret-file",
+  "country",
+  "host",
+  "port",
+  "status",
+]);
+
+const MTN_COMMON_FLAGS = [
+  "environment",
+  "e",
+  "base-url",
+  "timeout",
+  "max-retries",
+  "retry-backoff",
+] as const;
+
+const MTN_PRODUCT_FLAGS = [
+  ...MTN_COMMON_FLAGS,
+  "subscription-key",
+  "k",
+  "subscription-key-file",
+  "api-user",
+  "u",
+  "api-key",
+  "p",
+  "api-key-file",
+] as const;
+
+const MTN_TX_FLAGS = [
+  ...MTN_PRODUCT_FLAGS,
+  "payer-message",
+  "payee-note",
+  "reference-id",
+  "callback-url",
+] as const;
+
+const COMMAND_ALLOWED_FLAGS: Record<string, ReadonlySet<string>> = {
+  carrier: new Set(["help", "h"]),
+  "webhook verify": new Set([
+    "help",
+    "h",
+    "signature",
+    "s",
+    "secret",
+    "secret-file",
+    "payload-file",
+    "algorithm",
+    "encoding",
+    "timestamped",
+    "timestamp-separator",
+    "tolerance-seconds",
+  ]),
+  "sandbox provision": new Set([
+    "help",
+    "h",
+    ...MTN_COMMON_FLAGS,
+    "subscription-key",
+    "k",
+    "subscription-key-file",
+    "callback-host",
+    "c",
+    "output-file",
+    "redact-secret",
+  ]),
+  "sandbox get-user": new Set([
+    "help",
+    "h",
+    ...MTN_COMMON_FLAGS,
+    "subscription-key",
+    "k",
+    "subscription-key-file",
+  ]),
+  "collection balance": new Set(["help", "h", ...MTN_PRODUCT_FLAGS, "currency"]),
+  "collection request-to-pay": new Set(["help", "h", ...MTN_TX_FLAGS]),
+  "collection status": new Set(["help", "h", ...MTN_PRODUCT_FLAGS]),
+  "disbursement balance": new Set(["help", "h", ...MTN_PRODUCT_FLAGS, "currency"]),
+  "disbursement transfer": new Set(["help", "h", ...MTN_TX_FLAGS]),
+  "disbursement status": new Set(["help", "h", ...MTN_PRODUCT_FLAGS]),
+  "remittance balance": new Set(["help", "h", ...MTN_PRODUCT_FLAGS, "currency"]),
+  "remittance transfer": new Set(["help", "h", ...MTN_TX_FLAGS]),
+  "remittance status": new Set(["help", "h", ...MTN_PRODUCT_FLAGS]),
+  "airtel encrypt-pin": new Set(["help", "h", "public-key-file", "pin", "pin-file"]),
+  "airtel balance": new Set([
+    "help",
+    "h",
+    "client-id",
+    "client-secret",
+    "client-secret-file",
+    "country",
+    "currency",
+    "environment",
+    "e",
+    "base-url",
+  ]),
+  mock: new Set(["help", "h", "host", "port", "status", "allow-non-loopback"]),
+};
+
+function isFlagLikeToken(tok: string): boolean {
+  if (tok.startsWith("--")) return true;
+  return tok.startsWith("-") && tok.length > 1 && !/^-\d/.test(tok);
+}
+
+function validateCommandFlags(
+  commandKey: string,
+  flags: Record<string, string | boolean>,
+): void {
+  const allowed = COMMAND_ALLOWED_FLAGS[commandKey];
+  if (!allowed) return;
+  for (const key of Object.keys(flags)) {
+    if (!allowed.has(key)) {
+      const prefix = key.length === 1 ? "-" : "--";
+      throw new RangeError(`Unknown option '${prefix}${key}' for '${commandKey}'`);
+    }
+  }
+}
+
 function parseCliArgs(argv: readonly string[]): ParsedArgs {
   const positionals: string[] = [];
   const flags: Record<string, string | boolean> = {};
@@ -85,27 +238,54 @@ function parseCliArgs(argv: readonly string[]): ParsedArgs {
     if (tok.startsWith("--")) {
       const eq = tok.indexOf("=");
       if (eq !== -1) {
-        flags[tok.slice(2, eq)] = tok.slice(eq + 1);
+        const name = tok.slice(2, eq);
+        const val = tok.slice(eq + 1);
+        if (BOOLEAN_FLAGS.has(name)) {
+          if (val === "true") {
+            flags[name] = true;
+          } else if (val === "false") {
+            flags[name] = false;
+          } else {
+            throw new RangeError(
+              `Boolean option '--${name}' must be 'true' or 'false'`,
+            );
+          }
+        } else if (VALUE_FLAGS.has(name)) {
+          flags[name] = val;
+        } else {
+          throw new RangeError(`Unknown option '--${name}'`);
+        }
       } else {
         const name = tok.slice(2);
         if (BOOLEAN_FLAGS.has(name)) {
           flags[name] = true;
-        } else if (i + 1 < argv.length) {
+        } else if (VALUE_FLAGS.has(name)) {
+          const next = argv[i + 1];
+          if (next === undefined || isFlagLikeToken(next)) {
+            throw new RangeError(`Option '--${name}' requires a value`);
+          }
           i += 1;
-          flags[name] = argv[i]!;
+          flags[name] = next;
         } else {
-          flags[name] = "";
+          throw new RangeError(`Unknown option '--${name}'`);
         }
       }
-    } else if (tok.startsWith("-") && tok.length === 2) {
+    } else if (tok.startsWith("-") && tok.length > 1 && !/^-\d/.test(tok)) {
+      if (tok.length !== 2) {
+        throw new RangeError(`Unknown option '${tok}'`);
+      }
       const short = tok.slice(1);
       if (BOOLEAN_FLAGS.has(short)) {
         flags[short] = true;
-      } else if (i + 1 < argv.length) {
+      } else if (VALUE_FLAGS.has(short)) {
+        const next = argv[i + 1];
+        if (next === undefined || isFlagLikeToken(next)) {
+          throw new RangeError(`Option '-${short}' requires a value`);
+        }
         i += 1;
-        flags[short] = argv[i]!;
+        flags[short] = next;
       } else {
-        flags[short] = "";
+        throw new RangeError(`Unknown option '-${short}'`);
       }
     } else {
       positionals.push(tok);
@@ -288,20 +468,21 @@ export async function runCli(
   const env = io.env ?? process.env;
   const readStdin = io.readStdin ?? (() => readFileSync(0));
 
-  const { positionals, flags } = parseCliArgs(argv);
-  if (getBool(flags, ["version", "V"])) {
-    io.stdout(`js-momo-sdk ${VERSION}`);
-    return 0;
-  }
-  if (positionals.length === 0 || getBool(flags, ["help", "h"])) {
-    io.stdout(HELP_TEXT);
-    return 0;
-  }
-
-  const [cmd, sub, ...rest] = positionals;
-
   try {
+    const { positionals, flags } = parseCliArgs(argv);
+    if (getBool(flags, ["version", "V"])) {
+      io.stdout(`js-momo-sdk ${VERSION}`);
+      return 0;
+    }
+    if (positionals.length === 0 || getBool(flags, ["help", "h"])) {
+      io.stdout(HELP_TEXT);
+      return 0;
+    }
+
+    const [cmd, sub, ...rest] = positionals;
+
     if (cmd === "carrier") {
+      validateCommandFlags("carrier", flags);
       const msisdn = sub;
       if (!msisdn) throw new RangeError("msisdn argument is required");
       const match = detectCarrierFromMsisdn(msisdn);
@@ -315,6 +496,7 @@ export async function runCli(
     }
 
     if (cmd === "webhook" && sub === "verify") {
+      validateCommandFlags("webhook verify", flags);
       const signature = getOpt(flags, ["signature", "s"]);
       if (!signature) throw new RangeError("--signature is required");
       const secretFile = getOpt(flags, ["secret-file"]);
@@ -332,7 +514,13 @@ export async function runCli(
       );
       const raw = payloadFile === "-" ? readStdin() : readFileSync(payloadFile);
       const algorithm = getOpt(flags, ["algorithm"]) ?? "sha256";
+      const encoding = getOpt(flags, ["encoding"]) ?? "hex";
       if (getBool(flags, ["timestamped"])) {
+        if (encoding.toLowerCase() !== "hex") {
+          throw new RangeError(
+            "--encoding must be 'hex' when --timestamped is enabled",
+          );
+        }
         const sep =
           typeof flags["timestamp-separator"] === "string"
             ? flags["timestamp-separator"]
@@ -345,6 +533,7 @@ export async function runCli(
       } else {
         WebhookHandler.verifyHmacSignature(raw, signature, secret, {
           algorithm,
+          encoding,
         });
       }
       echoJson(io, { verified: true });
@@ -352,6 +541,7 @@ export async function runCli(
     }
 
     if (cmd === "sandbox" && sub === "provision") {
+      validateCommandFlags("sandbox provision", flags);
       const subKey = resolveSecret(
         getOpt(
           flags,
@@ -393,6 +583,7 @@ export async function runCli(
     }
 
     if (cmd === "sandbox" && sub === "get-user") {
+      validateCommandFlags("sandbox get-user", flags);
       const userId = rest[0];
       if (!userId) throw new RangeError("userId argument is required");
       const subKey = resolveSecret(
@@ -419,7 +610,11 @@ export async function runCli(
       }
     }
 
-    if (cmd === "collection") {
+    if (
+      cmd === "collection" &&
+      (sub === "balance" || sub === "request-to-pay" || sub === "status")
+    ) {
+      validateCommandFlags(`collection ${sub}`, flags);
       const cfg = buildMtnConfig(flags, env, {
         collection: buildProductConfig("COLLECTION", flags, env, readStdin),
       });
@@ -468,7 +663,11 @@ export async function runCli(
       }
     }
 
-    if (cmd === "disbursement") {
+    if (
+      cmd === "disbursement" &&
+      (sub === "balance" || sub === "transfer" || sub === "status")
+    ) {
+      validateCommandFlags(`disbursement ${sub}`, flags);
       const cfg = buildMtnConfig(flags, env, {
         disbursement: buildProductConfig("DISBURSEMENT", flags, env, readStdin),
       });
@@ -517,7 +716,11 @@ export async function runCli(
       }
     }
 
-    if (cmd === "remittance") {
+    if (
+      cmd === "remittance" &&
+      (sub === "balance" || sub === "transfer" || sub === "status")
+    ) {
+      validateCommandFlags(`remittance ${sub}`, flags);
       const cfg = buildMtnConfig(flags, env, {
         remittance: buildProductConfig("REMITTANCE", flags, env, readStdin),
       });
@@ -567,6 +770,7 @@ export async function runCli(
     }
 
     if (cmd === "airtel" && sub === "encrypt-pin") {
+      validateCommandFlags("airtel encrypt-pin", flags);
       const keyFile = getOpt(flags, ["public-key-file"]);
       if (!keyFile) throw new RangeError("--public-key-file is required");
       const pin = resolveSecret(
@@ -581,6 +785,7 @@ export async function runCli(
     }
 
     if (cmd === "airtel" && sub === "balance") {
+      validateCommandFlags("airtel balance", flags);
       const clientId = getOpt(
         flags,
         ["client-id"],
@@ -619,6 +824,7 @@ export async function runCli(
     }
 
     if (cmd === "mock") {
+      validateCommandFlags("mock", flags);
       const running = await startMockServer({
         host: getOpt(flags, ["host"]) ?? "127.0.0.1",
         port: getNum(flags, "port", 8090),

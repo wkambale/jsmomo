@@ -80,6 +80,32 @@ describe("JS MoMo SDK CLI", () => {
     expect(res.code).toBe(0);
     expect(JSON.parse(res.stdout)).toEqual({ verified: true });
 
+    // Base64 HMAC verification (e.g. Airtel Money x-signature, Issue #88)
+    const b64Sig = createHmac("sha256", "whsec").update(payload).digest("base64");
+    const b64Res = await captureCli(
+      ["webhook", "verify", "-s", b64Sig, "--secret", "whsec", "--encoding", "base64"],
+      { stdin: payload },
+    );
+    expect(b64Res.code).toBe(0);
+    expect(JSON.parse(b64Res.stdout)).toEqual({ verified: true });
+
+    const badTsB64 = await captureCli(
+      [
+        "webhook",
+        "verify",
+        "-s",
+        b64Sig,
+        "--secret",
+        "whsec",
+        "--timestamped",
+        "--encoding",
+        "base64",
+      ],
+      { stdin: payload },
+    );
+    expect(badTsB64.code).toBe(1);
+    expect(badTsB64.stderr).toContain("--encoding");
+
     const now = Math.floor(Date.now() / 1000);
     const tsSig = createHmac("sha256", "whsec")
       .update(`${now}`)
@@ -190,6 +216,43 @@ describe("JS MoMo SDK CLI", () => {
       api_key: string;
     };
     expect(saved.api_key).toContain("mock-api-key-");
+
+    // Issue #88: Unknown or missing-value flags never swallow --output-file or leak api_key to stdout
+    const unknownBeforeOut = await captureCli(
+      ["sandbox", "provision", "--verbose", "--output-file", credsFile],
+      { env },
+    );
+    expect(unknownBeforeOut.code).toBe(1);
+    expect(unknownBeforeOut.stdout).toBe("");
+    expect(unknownBeforeOut.stderr).toContain("Unknown option '--verbose'");
+
+    const wrongCmdFlag = await captureCli(
+      ["sandbox", "provision", "--pin", "1234", "--output-file", credsFile],
+      { env },
+    );
+    expect(wrongCmdFlag.code).toBe(1);
+    expect(wrongCmdFlag.stdout).toBe("");
+    expect(wrongCmdFlag.stderr).toContain("Unknown option '--pin'");
+
+    const missingOutValue = await captureCli(
+      ["sandbox", "provision", "--output-file"],
+      { env },
+    );
+    expect(missingOutValue.code).toBe(1);
+    expect(missingOutValue.stdout).toBe("");
+    expect(missingOutValue.stderr).toContain("requires a value");
+
+    const missingOutBeforeBool = await captureCli(
+      ["sandbox", "provision", "--output-file", "--redact-secret"],
+      { env },
+    );
+    expect(missingOutBeforeBool.code).toBe(1);
+    expect(missingOutBeforeBool.stdout).toBe("");
+    expect(missingOutBeforeBool.stderr).toContain("requires a value");
+
+    const unknownShort = await captureCli(["sandbox", "provision", "-z"], { env });
+    expect(unknownShort.code).toBe(1);
+    expect(unknownShort.stderr).toContain("Unknown option '-z'");
 
     // Existing permissive file is tightened to 0o600 and symlinks are refused (Issue #14)
     if (process.platform !== "win32") {
