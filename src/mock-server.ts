@@ -571,6 +571,35 @@ export function createMockServer(options: MockServerOptions = {}): {
 
       if (path.startsWith("/orange-money-webpay/") && path.endsWith("/webpayment")) {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const orderId = body["order_id"];
+        if (typeof orderId !== "string" || !orderId.trim() || orderId.length > 30) {
+          sendJson(res, 400, {
+            code: 400,
+            message: "order_id is required and must not exceed 30 characters",
+          });
+          return;
+        }
+        const refLabel = body["reference"];
+        if (
+          refLabel !== undefined &&
+          (typeof refLabel !== "string" || refLabel.length > 30)
+        ) {
+          sendJson(res, 400, {
+            code: 400,
+            message: "reference must not exceed 30 characters",
+          });
+          return;
+        }
+        for (const urlField of ["return_url", "cancel_url", "notif_url"] as const) {
+          const u = body[urlField];
+          if (typeof u === "string" && u.length > 120) {
+            sendJson(res, 400, {
+              code: 400,
+              message: `${urlField} must not exceed 120 characters`,
+            });
+            return;
+          }
+        }
         const idNum = state.nextId();
         const pt = `om-pay-${idNum}`;
         const nt = `om-notif-${idNum}`;
@@ -582,7 +611,7 @@ export function createMockServer(options: MockServerOptions = {}): {
               : "PENDING";
         state.putBounded(state.orangeTransactions, pt, {
           status: omStatus,
-          order_id: body["order_id"],
+          order_id: orderId,
           txnid: `OM-TXN-${idNum}`,
         });
         sendJson(res, 201, {

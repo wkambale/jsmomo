@@ -1234,22 +1234,30 @@ describe("Pan-African Providers Integration", () => {
       clientId: "cid",
       clientSecret: "csec",
       merchantKey: "mkey",
+      reference: "Boutique Sénégal",
       returnUrl: "https://shop.example.com/ret",
       cancelUrl: "https://shop.example.com/cancel",
       notifUrl: "https://shop.example.com/notif",
     });
+    expect(cfg.reference).toBe("Boutique Sénégal");
     expect(inspect(cfg)).not.toContain("csec");
 
+    let omCallIdx = 0;
+    const capturedOrangePayloads: Array<Record<string, unknown>> = [];
     const client = new OrangeMoneyClient(cfg, {
-      fetch: async (url) => {
+      fetch: async (url, init) => {
         if (url.endsWith("/oauth/v3/token")) {
           return jsonResp({ access_token: "om-tok", expires_in: 3600 });
         }
         if (url.endsWith("/orange-money-webpay/dev/v1/webpayment")) {
+          omCallIdx += 1;
+          capturedOrangePayloads.push(
+            JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+          );
           return jsonResp({
-            pay_token: "pt-om-1",
-            notif_token: "nt-om-secret-1",
-            payment_url: "https://webpayment.orange.com/pay/pt-om-1",
+            pay_token: `pt-om-${omCallIdx}`,
+            notif_token: `nt-om-secret-${omCallIdx}`,
+            payment_url: `https://webpayment.orange.com/pay/pt-om-${omCallIdx}`,
           });
         }
         if (url.endsWith("/orange-money-webpay/dev/v1/transactionstatus")) {
@@ -1273,6 +1281,58 @@ describe("Pan-African Providers Integration", () => {
     );
     expect(col.referenceId).toBe("pt-om-1");
     expect(col.checkoutUrl).toBe("https://webpayment.orange.com/pay/pt-om-1");
+    expect(capturedOrangePayloads[0]?.["reference"]).toBe("Boutique Sénégal");
+
+    // Default orderId generation, short externalId, UUID compaction, and long non-UUID compaction (Issue #85)
+    const defaultClientPay = await client.createWebPayment({
+      amount: "2500",
+      currency: "MGA",
+      reference: "Café Côte d'Ivoire",
+    });
+    expect(defaultClientPay["pay_token"]).toBe("pt-om-2");
+    const mgaPayload = capturedOrangePayloads[1]!;
+    expect(String(mgaPayload["order_id"]).length).toBeLessThanOrEqual(30);
+    expect(mgaPayload["amount"]).toBe(2500);
+    expect(mgaPayload["reference"]).toBe("Café Côte d'Ivoire");
+
+    const defaultProvCol = await orange.collect(
+      new PaymentRequest({
+        amount: "1500",
+        currency: "XOF",
+        payerMsisdn: "+221771234567",
+      }),
+    );
+    expect((defaultProvCol.externalId ?? "").length).toBeLessThanOrEqual(30);
+
+    const shortExtCol = await orange.collect(
+      new PaymentRequest({
+        amount: "1500",
+        currency: "XOF",
+        payerMsisdn: "+221771234567",
+        externalId: "inv-2026-01",
+      }),
+    );
+    expect(shortExtCol.externalId).toBe("inv-2026-01");
+
+    const uuidRefCol = await orange.collect(
+      new PaymentRequest({
+        amount: "1500",
+        currency: "XOF",
+        payerMsisdn: "+221771234567",
+        referenceId: "550e8400-e29b-41d4-a716-446655440000",
+      }),
+    );
+    expect((uuidRefCol.externalId ?? "").length).toBeLessThanOrEqual(30);
+
+    const longRefCol = await orange.collect(
+      new PaymentRequest({
+        amount: "1500",
+        currency: "XOF",
+        payerMsisdn: "+221771234567",
+        referenceId: "merchant-order-reference-exceeding-thirty-chars",
+      }),
+    );
+    expect((longRefCol.externalId ?? "").length).toBeLessThanOrEqual(30);
     // Context store automatically supplies orderId/amount/currency/notifToken and getStatus populates txnid (Issue #35)
     const st = await orange.getStatus("pt-om-1");
     expect(st.isSuccessful()).toBe(true);
@@ -1552,6 +1612,53 @@ describe("Pan-African Providers Integration", () => {
         currency: "OUV",
       }),
     ).rejects.toThrow("whole-integer");
+    await expect(
+      omNoPayClient.createWebPayment({
+        amount: "100.5",
+        currency: "MGA",
+      }),
+    ).rejects.toThrow("whole-integer");
+    await expect(
+      omNoPayClient.createWebPayment({
+        amount: "1000",
+        currency: "XOF",
+        orderId: "x".repeat(31),
+      }),
+    ).rejects.toThrow("30 characters");
+    await expect(
+      omNoPayClient.createWebPayment({
+        amount: "1000",
+        currency: "XOF",
+        orderId: "   ",
+      }),
+    ).rejects.toThrow("non-empty");
+    await expect(
+      omNoPayClient.createWebPayment({
+        amount: "1000",
+        currency: "XOF",
+        reference: "x".repeat(31),
+      }),
+    ).rejects.toThrow("30 characters");
+    const over120Url = `https://a.example.com/${"p".repeat(110)}`;
+    expect(
+      () =>
+        new OrangeMoneyConfig({
+          clientId: "cid",
+          clientSecret: "csec",
+          merchantKey: "mkey",
+          returnUrl: over120Url,
+        }),
+    ).toThrow("120 characters");
+    await expect(
+      omNoPayClient.createWebPayment({
+        amount: "1000",
+        currency: "XOF",
+        notifUrl: over120Url,
+      }),
+    ).rejects.toThrow("120 characters");
+    await expect(
+      omNoPayClient.getTransactionStatus("x".repeat(31), "1000", "pt-1"),
+    ).rejects.toThrow("30 characters");
     await expect(
       omNoPayToken.collect(
         new PaymentRequest({

@@ -251,6 +251,42 @@ describe("Local Mock Gateway Server", () => {
       currency: "XOF",
       orderId: "om-1",
     });
+    const omDefaultInit = await om.createWebPayment({
+      amount: "2000",
+      currency: "MGA",
+      reference: "Boutique Sénégal",
+    });
+    expect(typeof omDefaultInit["pay_token"]).toBe("string");
+    expect(
+      (
+        await fetch(`${mock.url}/orange-money-webpay/dev/v1/webpayment`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ order_id: "x".repeat(31) }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(`${mock.url}/orange-money-webpay/dev/v1/webpayment`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ order_id: "om-ok", reference: "x".repeat(31) }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(`${mock.url}/orange-money-webpay/dev/v1/webpayment`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            order_id: "om-ok",
+            notif_url: `https://a.example.com/${"u".repeat(110)}`,
+          }),
+        })
+      ).status,
+    ).toBe(400);
     const omSt = await om.getTransactionStatus(
       "om-1",
       "1000",

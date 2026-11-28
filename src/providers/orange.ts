@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { inspect } from "node:util";
 
 import { TokenCache } from "../auth.js";
@@ -7,13 +8,13 @@ import { DEFAULT_MAX_RESPONSE_BYTES, HttpClient, parseJsonObject } from "../http
 import type { TelemetryHook } from "../telemetry.js";
 import {
   buildBasicAuthHeader,
-  generateReferenceId,
   validateAmount,
   validateBaseUrl,
   validateCallbackUrl,
   validateCurrency,
   validateHeaderValue,
   validateMaxRetries,
+  validatePrintableText,
   validateRequestPath,
   validateRetryBackoff,
   validateTimeout,
@@ -37,7 +38,39 @@ export const ORANGE_DEFAULT_API_PATH_PREFIX = "/orange-money-webpay/dev/v1";
 
 const MAX_PAYMENT_CONTEXT = 4096;
 const VALID_ORANGE_ENVIRONMENTS = new Set(["sandbox", "production"]);
-const ORANGE_INTEGER_CURRENCIES = new Set(["XOF", "XAF", "OUV", "GNF"]);
+const ORANGE_INTEGER_CURRENCIES = new Set(["XOF", "XAF", "OUV", "GNF", "MGA"]);
+const ORANGE_MAX_ID_LENGTH = 30;
+const ORANGE_MAX_URL_LENGTH = 120;
+const ORANGE_UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+function generateOrangeOrderId(): string {
+  return `om_${randomBytes(12).toString("hex")}`;
+}
+
+function compactOrangeOrderId(candidate: string): string {
+  if (candidate.length <= ORANGE_MAX_ID_LENGTH) {
+    return candidate;
+  }
+  if (ORANGE_UUID_RE.test(candidate)) {
+    return `om_${Buffer.from(candidate.replace(/-/g, ""), "hex").toString("base64url")}`;
+  }
+  return `om_${createHash("sha256").update(candidate, "utf8").digest("base64url").slice(0, 27)}`;
+}
+
+function validateOrangeCallbackUrl(
+  url: string,
+  fieldName: string,
+  allowLocalhost: boolean,
+): string {
+  const validated = validateCallbackUrl(url, { allowLocalhost });
+  if (validated.length > ORANGE_MAX_URL_LENGTH) {
+    throw new RangeError(
+      `Orange Money ${fieldName} must not exceed ${ORANGE_MAX_URL_LENGTH} characters`,
+    );
+  }
+  return validated;
+}
 
 const ORANGE_CAPABILITIES = new ProviderCapabilities({
   providerId: "orange_money",
@@ -183,11 +216,9 @@ export class OrangeMoneyConfig {
     }
     this.lang = validateOrangeLang(options.lang ?? "fr");
     if (options.reference !== undefined && options.reference !== null) {
-      if (typeof options.reference !== "string" || !options.reference.trim()) {
-        throw new RangeError("reference must not be blank");
-      }
-      this.reference = validateHeaderValue(options.reference.trim(), {
+      this.reference = validatePrintableText(options.reference, {
         fieldName: "reference",
+        maxLength: ORANGE_MAX_ID_LENGTH,
       });
     } else {
       this.reference = null;
@@ -195,15 +226,15 @@ export class OrangeMoneyConfig {
     const allowLocalhost = env === "sandbox";
     this.returnUrl =
       options.returnUrl !== undefined && options.returnUrl !== null
-        ? validateCallbackUrl(options.returnUrl, { allowLocalhost })
+        ? validateOrangeCallbackUrl(options.returnUrl, "returnUrl", allowLocalhost)
         : null;
     this.cancelUrl =
       options.cancelUrl !== undefined && options.cancelUrl !== null
-        ? validateCallbackUrl(options.cancelUrl, { allowLocalhost })
+        ? validateOrangeCallbackUrl(options.cancelUrl, "cancelUrl", allowLocalhost)
         : null;
     this.notifUrl =
       options.notifUrl !== undefined && options.notifUrl !== null
-        ? validateCallbackUrl(options.notifUrl, { allowLocalhost })
+        ? validateOrangeCallbackUrl(options.notifUrl, "notifUrl", allowLocalhost)
         : null;
 
     let prefix = options.apiPathPrefix;
@@ -402,17 +433,20 @@ export class OrangeMoneyClient {
     let resolvedRefLabel =
       params.reference !== undefined ? params.reference : this.config.reference;
     if (resolvedRefLabel !== null && resolvedRefLabel !== undefined) {
-      if (typeof resolvedRefLabel !== "string" || !resolvedRefLabel.trim()) {
-        throw new RangeError("reference must not be blank");
-      }
-      resolvedRefLabel = validateHeaderValue(resolvedRefLabel.trim(), {
+      resolvedRefLabel = validatePrintableText(resolvedRefLabel, {
         fieldName: "reference",
+        maxLength: ORANGE_MAX_ID_LENGTH,
       });
     }
     const allowLocalhost = this.config.environment === "sandbox";
-    for (const u of [params.returnUrl, params.cancelUrl, params.notifUrl]) {
+    const explicitUrls: Array<[string, string | null | undefined]> = [
+      ["returnUrl", params.returnUrl],
+      ["cancelUrl", params.cancelUrl],
+      ["notifUrl", params.notifUrl],
+    ];
+    for (const [fieldName, u] of explicitUrls) {
       if (u !== undefined && u !== null) {
-        validateCallbackUrl(u, { allowLocalhost });
+        validateOrangeCallbackUrl(u, fieldName, allowLocalhost);
       }
     }
     const resolvedNotif = params.notifUrl ?? this.config.notifUrl;
@@ -423,8 +457,19 @@ export class OrangeMoneyClient {
         "returnUrl, cancelUrl, and notifUrl are required for Orange Money",
       );
     }
-    const ref = params.orderId ?? generateReferenceId();
-    validateHeaderValue(ref, { fieldName: "orderId" });
+    const ref =
+      params.orderId !== undefined && params.orderId !== null
+        ? params.orderId
+        : generateOrangeOrderId();
+    if (typeof ref !== "string" || !ref.trim()) {
+      throw new RangeError("orderId must be a non-empty string");
+    }
+    validateHeaderValue(ref, { fieldName: "orderId", allowWhitespace: false });
+    if (ref.length > ORANGE_MAX_ID_LENGTH) {
+      throw new RangeError(
+        `Orange Money orderId must not exceed ${ORANGE_MAX_ID_LENGTH} characters`,
+      );
+    }
     const payload: Record<string, unknown> = {
       merchant_key: this.config.merchantKey,
       currency,
@@ -499,7 +544,12 @@ export class OrangeMoneyClient {
     if (typeof payToken !== "string" || !payToken.trim()) {
       throw new RangeError("payToken must be a non-empty string");
     }
-    validateHeaderValue(orderId, { fieldName: "orderId" });
+    validateHeaderValue(orderId, { fieldName: "orderId", allowWhitespace: false });
+    if (orderId.length > ORANGE_MAX_ID_LENGTH) {
+      throw new RangeError(
+        `Orange Money orderId must not exceed ${ORANGE_MAX_ID_LENGTH} characters`,
+      );
+    }
     validateHeaderValue(payToken, { fieldName: "payToken" });
     const formattedAmount = formatOrangeAmount(amount, options.currency ?? null);
     const response = await this.http.request(
@@ -551,8 +601,22 @@ export class OrangeMoneyProvider implements PaymentProvider {
   }
 
   public async collect(request: PaymentRequest): Promise<PaymentResult> {
-    const orderId =
-      request.referenceId ?? (request.externalId || generateReferenceId());
+    let orderId: string;
+    if (request.referenceId !== null) {
+      validateHeaderValue(request.referenceId, {
+        fieldName: "orderId",
+        allowWhitespace: false,
+      });
+      orderId = compactOrangeOrderId(request.referenceId);
+    } else if (
+      request.externalId &&
+      request.externalId.trim() &&
+      request.externalId.length <= ORANGE_MAX_ID_LENGTH
+    ) {
+      orderId = request.externalId;
+    } else {
+      orderId = generateOrangeOrderId();
+    }
     const res = await this.client.createWebPayment({
       amount: request.amount,
       currency: request.currency,
