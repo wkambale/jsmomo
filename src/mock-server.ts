@@ -447,7 +447,16 @@ export function createMockServer(options: MockServerOptions = {}): {
       }
 
       if (path === "/mpesa/stkpush/v1/processrequest") {
-        await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        const partyA = String(body["PartyA"] ?? "");
+        const phone = String(body["PhoneNumber"] ?? "");
+        if (!/^254[17]\d{8}$/.test(partyA) || !/^254[17]\d{8}$/.test(phone)) {
+          sendJson(res, 400, {
+            errorCode: "400.002.02",
+            errorMessage: "Bad Request - Invalid PhoneNumber",
+          });
+          return;
+        }
         const cid = `ws_CO_mock_${state.nextId()}`;
         state.putBounded(state.mpesaTransactions, cid, {
           CheckoutRequestID: cid,
@@ -482,12 +491,42 @@ export function createMockServer(options: MockServerOptions = {}): {
 
       if (
         path === "/mpesa/b2c/v3/paymentrequest" ||
-        path === "/mpesa/transactionstatus/v1/query"
+        path === "/mpesa/transactionstatus/v1/query" ||
+        path === "/mpesa/accountbalance/v1/query" ||
+        path === "/mpesa/reversal/v1/request"
       ) {
         const body = await readJsonBody(req, maxBodyBytes, timeoutMs);
+        if (path === "/mpesa/b2c/v3/paymentrequest") {
+          const partyB = String(body["PartyB"] ?? "");
+          if (!/^254[17]\d{8}$/.test(partyB)) {
+            sendJson(res, 400, {
+              errorCode: "400.002.02",
+              errorMessage: "Bad Request - Invalid PhoneNumber",
+            });
+            return;
+          }
+        }
+        if (path === "/mpesa/reversal/v1/request") {
+          const txId = body["TransactionID"];
+          const recIdentType = body["RecieverIdentifierType"];
+          if (
+            typeof txId !== "string" ||
+            !txId.trim() ||
+            typeof recIdentType !== "string" ||
+            !recIdentType.trim()
+          ) {
+            sendJson(res, 400, {
+              errorCode: "400.002.02",
+              errorMessage:
+                "Bad Request - Invalid TransactionID or RecieverIdentifierType",
+            });
+            return;
+          }
+        }
         const ocid = String(
           body["OriginatorConversationID"] ??
             body["OriginalConversationID"] ??
+            body["TransactionID"] ??
             "mock-oc-1",
         );
         sendJson(res, 200, {

@@ -179,13 +179,49 @@ describe("Local Mock Gateway Server", () => {
     });
     const stk = await mpesa.stkPush({
       amount: "100",
-      phoneNumber: "254712345678",
+      phoneNumber: "0712345678",
     });
     expect((await mpesa.stkQuery(stk.checkoutRequestId)).resultCode).toBe("0");
     expect(
-      (await mpesa.b2cTransfer({ amount: "100", phoneNumber: "254712345678" }))
+      (await mpesa.b2cTransfer({ amount: "100", phoneNumber: "0112345678" }))
         .responseCode,
     ).toBe("0");
+    expect((await mpesa.accountBalance()).responseCode).toBe("0");
+    expect(
+      (
+        await mpesa.reverseTransaction({
+          transactionId: "QWE123RTY",
+          amount: "100",
+        })
+      ).responseCode,
+    ).toBe("0");
+    expect(
+      (
+        await fetch(`${mock.url}/mpesa/stkpush/v1/processrequest`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ PartyA: "0712345678", PhoneNumber: "0712345678" }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(`${mock.url}/mpesa/b2c/v3/paymentrequest`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ PartyB: "0712345678" }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await fetch(`${mock.url}/mpesa/reversal/v1/request`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ TransactionID: "" }),
+        })
+      ).status,
+    ).toBe(400);
 
     // 5. Paystack
     const ps = new PaystackClient({ secretKey: "sk", baseUrl: mock.url });

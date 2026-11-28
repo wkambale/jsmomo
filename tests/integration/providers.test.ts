@@ -37,6 +37,7 @@ import {
   WaveConfig,
   WaveProvider,
   encryptMpesaSecurityCredential,
+  normaliseMpesaMsisdn,
   parseMpesaB2CCallback,
   parseMpesaStkCallback,
 } from "../../src/providers/index.js";
@@ -471,12 +472,21 @@ describe("Pan-African Providers Integration", () => {
     expect(inspect(cfg)).not.toContain("csec");
     expect(cfg.toJSON()["passkey"]).toBe("<redacted>");
 
+    let seenStkPhone = "";
+    let seenB2cPhone = "";
+    let seenBalancePayload: Record<string, unknown> = {};
+    let seenReversalPayload: Record<string, unknown> = {};
     const client = new MpesaClient(cfg, {
-      fetch: async (url) => {
+      fetch: async (url, init) => {
         if (url.includes("/oauth/v1/generate")) {
           return jsonResp({ access_token: "mpesa-tok", expires_in: "3599" });
         }
         if (url.endsWith("/mpesa/stkpush/v1/processrequest")) {
+          const parsed = JSON.parse(String(init?.body ?? "{}")) as Record<
+            string,
+            unknown
+          >;
+          seenStkPhone = String(parsed["PhoneNumber"] ?? "");
           return jsonResp({
             MerchantRequestID: "mr-1",
             CheckoutRequestID: "ws_CO_1",
@@ -492,6 +502,11 @@ describe("Pan-African Providers Integration", () => {
           });
         }
         if (url.endsWith("/mpesa/b2c/v3/paymentrequest")) {
+          const parsed = JSON.parse(String(init?.body ?? "{}")) as Record<
+            string,
+            unknown
+          >;
+          seenB2cPhone = String(parsed["PartyB"] ?? "");
           return jsonResp({
             ConversationID: "conv-1",
             OriginatorConversationID: "orig-1",
@@ -499,18 +514,53 @@ describe("Pan-African Providers Integration", () => {
             ResponseDescription: "Accepted",
           });
         }
+        if (url.endsWith("/mpesa/accountbalance/v1/query")) {
+          seenBalancePayload = JSON.parse(String(init?.body ?? "{}")) as Record<
+            string,
+            unknown
+          >;
+          return jsonResp({
+            ConversationID: "bal-conv-1",
+            OriginatorConversationID: "bal-orig-1",
+            ResponseCode: "0",
+            ResponseDescription: "Accepted",
+          });
+        }
+        if (url.endsWith("/mpesa/reversal/v1/request")) {
+          seenReversalPayload = JSON.parse(String(init?.body ?? "{}")) as Record<
+            string,
+            unknown
+          >;
+          return jsonResp({
+            ConversationID: "rev-conv-1",
+            OriginatorConversationID: "rev-orig-1",
+            ResponseCode: "0",
+            ResponseDescription: "Accepted",
+          });
+        }
         return jsonResp({}, 404);
       },
     });
+    // Issue #86: Kenyan local 07/01/7/1/+25407 phone normalization & rejection of non-Kenyan numbers
+    expect(normaliseMpesaMsisdn("0712345678")).toBe("254712345678");
+    expect(normaliseMpesaMsisdn("0112345678")).toBe("254112345678");
+    expect(normaliseMpesaMsisdn("712345678")).toBe("254712345678");
+    expect(normaliseMpesaMsisdn("112345678")).toBe("254112345678");
+    expect(normaliseMpesaMsisdn("+254 0712 345678")).toBe("254712345678");
+    expect(normaliseMpesaMsisdn("00254712345678")).toBe("254712345678");
+    expect(() => normaliseMpesaMsisdn("+256772123456")).toThrow("Kenyan mobile number");
+    expect(() => normaliseMpesaMsisdn("0812345678")).toThrow("Kenyan mobile number");
+
     const mpesa = new MpesaProvider(client);
     const col = await mpesa.collect(
       new PaymentRequest({
         amount: "500",
         currency: "KES",
-        payerMsisdn: "+254712345678",
+        payerMsisdn: "0712345678",
         externalId: "INV-001",
       }),
     );
+    expect(seenStkPhone).toBe("254712345678");
     expect(col.referenceId).toBe("ws_CO_1");
     expect((await mpesa.getStatus("ws_CO_1")).isSuccessful()).toBe(true);
 
@@ -518,10 +568,33 @@ describe("Pan-African Providers Integration", () => {
       new DisbursementRequest({
         amount: "500",
         currency: "KES",
-        payeeMsisdn: "+254712345678",
+        payeeMsisdn: "0112345678",
       }),
     );
+    expect(seenB2cPhone).toBe("254112345678");
     expect(disb.referenceId).toBe("conv-1");
+
+    const balRes = await client.accountBalance({
+      remarks: "Daily Reconciliation",
+      originatorConversationId: "bal-orig-1",
+    });
+    expect(balRes.conversationId).toBe("bal-conv-1");
+    expect(seenBalancePayload["CommandID"]).toBe("AccountBalance");
+    expect(seenBalancePayload["IdentifierType"]).toBe("4");
+    expect(seenBalancePayload["OriginatorConversationID"]).toBe("bal-orig-1");
+
+    const revRes = await client.reverseTransaction({
+      transactionId: "QWE123RTY",
+      amount: "500",
+      remarks: "Duplicate charge",
+      originatorConversationId: "rev-orig-1",
+    });
+    expect(revRes.conversationId).toBe("rev-conv-1");
+    expect(seenReversalPayload["CommandID"]).toBe("TransactionReversal");
+    expect(seenReversalPayload["TransactionID"]).toBe("QWE123RTY");
+    expect(seenReversalPayload["Amount"]).toBe(500);
+    expect(seenReversalPayload["RecieverIdentifierType"]).toBe("11");
+    expect(seenReversalPayload["OriginatorConversationID"]).toBe("rev-orig-1");
     await expect(mpesa.getStatus("conv-1", { kind: "disbursement" })).rejects.toThrow(
       JsMomoSDKError,
     );
@@ -1481,6 +1554,10 @@ describe("Pan-African Providers Integration", () => {
     ).rejects.toThrow("12 characters");
     await expect(
       mpesaNoSec.b2cTransfer({ amount: "100", phoneNumber: "254712345678" }),
+    ).rejects.toThrow("securityCredential");
+    await expect(mpesaNoSec.accountBalance()).rejects.toThrow("securityCredential");
+    await expect(
+      mpesaNoSec.reverseTransaction({ transactionId: "QWE123", amount: "100" }),
     ).rejects.toThrow("securityCredential");
     await expect(mpesaNoSec.stkQuery("   ")).rejects.toThrow("non-empty");
     const mpesaProv = new MpesaProvider(mpesaNoSec);
