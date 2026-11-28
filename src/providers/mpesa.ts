@@ -19,6 +19,7 @@ import {
   validateCallbackUrl,
   validateHeaderValue,
   validateMaxRetries,
+  validatePrintableText,
   validateRetryBackoff,
   validateTimeout,
 } from "../utils.js";
@@ -60,8 +61,37 @@ const VALID_MPESA_COMMAND_IDS = new Set([
 const MAX_MPESA_ACCOUNT_REFERENCE_LEN = 12;
 const MAX_MPESA_TRANSACTION_DESC_LEN = 13;
 const VALID_MPESA_IDENTIFIER_TYPES = new Set(["1", "2", "4"]);
+const VALID_MPESA_REVERSAL_IDENTIFIER_TYPES = new Set(["1", "2", "4", "11"]);
+const MPESA_MSISDN_RE = /^254[17]\d{8}$/;
 const STRICT_BASE64_RE =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+/**
+ * Normalize a Kenyan phone number (`07...`, `01...`, `7...`, `1...`, `+254...`, `00254...`)
+ * into Safaricom Daraja's required 12-digit `2547XXXXXXXX` / `2541XXXXXXXX` format.
+ */
+export function normaliseMpesaMsisdn(msisdn: string): string {
+  let digits = normaliseMsisdn(msisdn);
+  if (digits.length === 10 && (digits.startsWith("07") || digits.startsWith("01"))) {
+    digits = `254${digits.slice(1)}`;
+  } else if (
+    digits.length === 9 &&
+    (digits.startsWith("7") || digits.startsWith("1"))
+  ) {
+    digits = `254${digits}`;
+  } else if (
+    digits.length === 13 &&
+    (digits.startsWith("25407") || digits.startsWith("25401"))
+  ) {
+    digits = `254${digits.slice(4)}`;
+  }
+  if (!MPESA_MSISDN_RE.test(digits)) {
+    throw new RangeError(
+      "M-Pesa phone number must be a valid Kenyan mobile number (e.g. '0712345678' or '+254712345678')",
+    );
+  }
+  return digits;
+}
 
 function validateEncryptedSecurityCredential(credential: string): void {
   const stripped = credential.trim();
@@ -369,6 +399,41 @@ export interface MpesaTransactionStatusResponse {
   readonly responseDescription: string;
 }
 
+export interface MpesaAccountBalanceParams {
+  partyA?: string | null;
+  identifierType?: "1" | "2" | "4";
+  remarks?: string;
+  callbackUrl?: string | null;
+  queueTimeoutUrl?: string | null;
+  originatorConversationId?: string | null;
+}
+
+export interface MpesaAccountBalanceResponse {
+  readonly conversationId: string;
+  readonly originatorConversationId: string;
+  readonly responseCode: string;
+  readonly responseDescription: string;
+}
+
+export interface MpesaReversalParams {
+  transactionId: string;
+  amount: string;
+  receiverParty?: string | null;
+  receiverIdentifierType?: "1" | "2" | "4" | "11";
+  remarks?: string;
+  occasion?: string;
+  callbackUrl?: string | null;
+  queueTimeoutUrl?: string | null;
+  originatorConversationId?: string | null;
+}
+
+export interface MpesaReversalResponse {
+  readonly conversationId: string;
+  readonly originatorConversationId: string;
+  readonly responseCode: string;
+  readonly responseDescription: string;
+}
+
 function strOrEmpty(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
@@ -532,7 +597,7 @@ export class MpesaClient {
       this.config.shortCode,
       this.config.passkey,
     );
-    const msisdn = normaliseMsisdn(params.phoneNumber);
+    const msisdn = normaliseMpesaMsisdn(params.phoneNumber);
     const response = await this.http.request(
       "POST",
       "/mpesa/stkpush/v1/processrequest",
@@ -659,7 +724,7 @@ export class MpesaClient {
     } else {
       origId = generateReferenceId();
     }
-    const msisdn = normaliseMsisdn(params.phoneNumber);
+    const msisdn = normaliseMpesaMsisdn(params.phoneNumber);
     const response = await this.http.request("POST", "/mpesa/b2c/v3/paymentrequest", {
       headers: await this.authHeaders(origId),
       json: {
@@ -766,6 +831,202 @@ export class MpesaClient {
         referenceId: refId,
       },
     );
+    const raw = parseJsonObject(response, refId);
+    return Object.freeze({
+      conversationId: strOrEmpty(raw["ConversationID"]),
+      originatorConversationId: strOrEmpty(raw["OriginatorConversationID"]),
+      responseCode: strOrEmpty(raw["ResponseCode"]),
+      responseDescription: strOrEmpty(raw["ResponseDescription"]),
+    });
+  }
+
+  /** Query the Daraja shortcode account balance asynchronously via ResultURL. */
+  public async accountBalance(
+    params: MpesaAccountBalanceParams = {},
+  ): Promise<MpesaAccountBalanceResponse> {
+    if (!this.config.securityCredential) {
+      throw new RangeError(
+        "securityCredential is required for M-Pesa account balance queries",
+      );
+    }
+    if (!this.config.initiatorName) {
+      throw new RangeError(
+        "initiatorName is required for M-Pesa account balance queries",
+      );
+    }
+    let partyA = this.config.shortCode;
+    if (params.partyA !== undefined && params.partyA !== null) {
+      if (typeof params.partyA !== "string" || !params.partyA.trim()) {
+        throw new RangeError("partyA must not be blank");
+      }
+      partyA = validateHeaderValue(params.partyA.trim(), {
+        fieldName: "partyA",
+        allowWhitespace: false,
+      });
+    }
+    const identifierType = params.identifierType ?? "4";
+    if (!VALID_MPESA_IDENTIFIER_TYPES.has(identifierType)) {
+      throw new RangeError("identifierType must be '1', '2', or '4'");
+    }
+    const allowLocalhost = this.config.environment === "sandbox";
+    if (params.callbackUrl !== undefined && params.callbackUrl !== null) {
+      validateCallbackUrl(params.callbackUrl, { allowLocalhost });
+    }
+    if (params.queueTimeoutUrl !== undefined && params.queueTimeoutUrl !== null) {
+      validateCallbackUrl(params.queueTimeoutUrl, { allowLocalhost });
+    }
+    const cb = params.callbackUrl ?? this.config.callbackUrl;
+    if (!cb) {
+      throw new RangeError("callbackUrl is required for M-Pesa account balance");
+    }
+    const timeoutCb = params.queueTimeoutUrl ?? this.config.queueTimeoutUrl ?? cb;
+    const remarks = validatePrintableText(params.remarks ?? "AccountBalance", {
+      fieldName: "remarks",
+      maxLength: 100,
+    });
+    let explicitOrigId: string | null = null;
+    if (
+      params.originatorConversationId !== undefined &&
+      params.originatorConversationId !== null
+    ) {
+      if (
+        typeof params.originatorConversationId !== "string" ||
+        !params.originatorConversationId.trim()
+      ) {
+        throw new RangeError("originatorConversationId must not be blank");
+      }
+      explicitOrigId = validateHeaderValue(params.originatorConversationId.trim(), {
+        fieldName: "originatorConversationId",
+      });
+    }
+    const refId = explicitOrigId ?? generateReferenceId();
+    const payload: Record<string, unknown> = {
+      Initiator: this.config.initiatorName,
+      SecurityCredential: this.config.securityCredential,
+      CommandID: "AccountBalance",
+      PartyA: partyA,
+      IdentifierType: identifierType,
+      Remarks: remarks,
+      QueueTimeOutURL: timeoutCb,
+      ResultURL: cb,
+    };
+    if (explicitOrigId !== null) {
+      payload["OriginatorConversationID"] = explicitOrigId;
+    }
+    const response = await this.http.request("POST", "/mpesa/accountbalance/v1/query", {
+      headers: await this.authHeaders(refId),
+      json: payload,
+      productName: "mpesa",
+      tokenCache: this.cache,
+      tokenRefresher: this.getToken,
+      idempotent: true,
+      referenceId: refId,
+    });
+    const raw = parseJsonObject(response, refId);
+    return Object.freeze({
+      conversationId: strOrEmpty(raw["ConversationID"]),
+      originatorConversationId: strOrEmpty(raw["OriginatorConversationID"]),
+      responseCode: strOrEmpty(raw["ResponseCode"]),
+      responseDescription: strOrEmpty(raw["ResponseDescription"]),
+    });
+  }
+
+  /** Initiate a Safaricom Daraja transaction reversal (`POST /mpesa/reversal/v1/request`). */
+  public async reverseTransaction(
+    params: MpesaReversalParams,
+  ): Promise<MpesaReversalResponse> {
+    if (!this.config.securityCredential) {
+      throw new RangeError(
+        "securityCredential is required for M-Pesa transaction reversals",
+      );
+    }
+    if (!this.config.initiatorName) {
+      throw new RangeError(
+        "initiatorName is required for M-Pesa transaction reversals",
+      );
+    }
+    if (typeof params.transactionId !== "string" || !params.transactionId.trim()) {
+      throw new RangeError("transactionId must be a non-empty string");
+    }
+    const txId = validateHeaderValue(params.transactionId.trim(), {
+      fieldName: "transactionId",
+      allowWhitespace: false,
+    });
+    const intAmount = toMpesaIntAmount(params.amount);
+    let receiverParty = this.config.shortCode;
+    if (params.receiverParty !== undefined && params.receiverParty !== null) {
+      if (typeof params.receiverParty !== "string" || !params.receiverParty.trim()) {
+        throw new RangeError("receiverParty must not be blank");
+      }
+      receiverParty = validateHeaderValue(params.receiverParty.trim(), {
+        fieldName: "receiverParty",
+        allowWhitespace: false,
+      });
+    }
+    const receiverIdentifierType = params.receiverIdentifierType ?? "11";
+    if (!VALID_MPESA_REVERSAL_IDENTIFIER_TYPES.has(receiverIdentifierType)) {
+      throw new RangeError("receiverIdentifierType must be '1', '2', '4', or '11'");
+    }
+    const allowLocalhost = this.config.environment === "sandbox";
+    if (params.callbackUrl !== undefined && params.callbackUrl !== null) {
+      validateCallbackUrl(params.callbackUrl, { allowLocalhost });
+    }
+    if (params.queueTimeoutUrl !== undefined && params.queueTimeoutUrl !== null) {
+      validateCallbackUrl(params.queueTimeoutUrl, { allowLocalhost });
+    }
+    const cb = params.callbackUrl ?? this.config.callbackUrl;
+    if (!cb) {
+      throw new RangeError("callbackUrl is required for M-Pesa transaction reversals");
+    }
+    const timeoutCb = params.queueTimeoutUrl ?? this.config.queueTimeoutUrl ?? cb;
+    const remarks = validatePrintableText(params.remarks ?? "Reversal", {
+      fieldName: "remarks",
+      maxLength: 100,
+    });
+    const occasion = validatePrintableText(params.occasion ?? "Reversal", {
+      fieldName: "occasion",
+      maxLength: 100,
+    });
+    let explicitOrigId: string | null = null;
+    if (
+      params.originatorConversationId !== undefined &&
+      params.originatorConversationId !== null
+    ) {
+      if (
+        typeof params.originatorConversationId !== "string" ||
+        !params.originatorConversationId.trim()
+      ) {
+        throw new RangeError("originatorConversationId must not be blank");
+      }
+      explicitOrigId = validateHeaderValue(params.originatorConversationId.trim(), {
+        fieldName: "originatorConversationId",
+      });
+    }
+    const refId = explicitOrigId ?? txId;
+    const payload: Record<string, unknown> = {
+      Initiator: this.config.initiatorName,
+      SecurityCredential: this.config.securityCredential,
+      CommandID: "TransactionReversal",
+      TransactionID: txId,
+      Amount: intAmount,
+      ReceiverParty: receiverParty,
+      RecieverIdentifierType: receiverIdentifierType,
+      ResultURL: cb,
+      QueueTimeOutURL: timeoutCb,
+      Remarks: remarks,
+      Occasion: occasion,
+    };
+    if (explicitOrigId !== null) {
+      payload["OriginatorConversationID"] = explicitOrigId;
+    }
+    const response = await this.http.request("POST", "/mpesa/reversal/v1/request", {
+      headers: await this.authHeaders(refId),
+      json: payload,
+      productName: "mpesa",
+      tokenCache: this.cache,
+      tokenRefresher: this.getToken,
+      referenceId: refId,
+    });
     const raw = parseJsonObject(response, refId);
     return Object.freeze({
       conversationId: strOrEmpty(raw["ConversationID"]),
