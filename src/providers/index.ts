@@ -73,7 +73,10 @@ export {
   PaystackConfig,
   type PaystackConfigOptions,
   type PaystackInitializeParams,
+  type PaystackListBanksParams,
+  type PaystackMobileMoneyChargeParams,
   PaystackProvider,
+  type PaystackRefundParams,
   type PaystackTransferParams,
   type PaystackTransferRecipientParams,
 } from "./paystack.js";

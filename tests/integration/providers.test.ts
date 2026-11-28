@@ -861,17 +861,50 @@ describe("Pan-African Providers Integration", () => {
     });
     expect(inspect(cfg)).not.toContain("sk_test_12345");
     let capturedAmount = 0;
+    let capturedInitPayload: Record<string, unknown> = {};
+    let capturedChargePayload: Record<string, unknown> = {};
+    let capturedRefundPayload: Record<string, unknown> = {};
     const client = new PaystackClient(cfg, {
       fetch: async (url, init) => {
         if (url.endsWith("/transaction/initialize")) {
-          const body = JSON.parse(String(init?.body));
-          capturedAmount = body.amount;
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          capturedInitPayload = body;
+          capturedAmount = Number(body["amount"]);
           return jsonResp({
             status: true,
             data: {
               authorization_url: "https://checkout.paystack.com/abc",
-              reference: body.reference,
+              reference: body["reference"],
             },
+          });
+        }
+        if (url.endsWith("/charge")) {
+          capturedChargePayload = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          return jsonResp({
+            status: true,
+            data: {
+              reference: capturedChargePayload["reference"],
+              status: "pay_offline",
+            },
+          });
+        }
+        if (url.includes("/bank")) {
+          return jsonResp({
+            status: true,
+            data: [{ name: "MTN Mobile Money", code: "MTN", type: "mobile_money" }],
+          });
+        }
+        if (url.endsWith("/refund")) {
+          capturedRefundPayload = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          return jsonResp({
+            status: true,
+            data: { status: "pending", amount: capturedRefundPayload["amount"] },
           });
         }
         if (url.includes("/transaction/verify/")) {
@@ -1007,13 +1040,83 @@ describe("Pan-African Providers Integration", () => {
         currency: "NGN",
         payeeMsisdn: "+2348012345678",
         payeeBankCode: "RCP_abc123",
-        referenceId: "ps-t-1",
+        referenceId: "ps-transfer-ref-01",
       }),
     );
-    expect(dis.referenceId).toBe("ps-t-1");
-    expect((await ps.getStatus("ps-t-1", { kind: "disbursement" })).status).toBe(
-      NormalizedStatus.REVERSED,
+    expect(dis.referenceId).toBe("ps-transfer-ref-01");
+    expect(
+      (await ps.getStatus("ps-transfer-ref-01", { kind: "disbursement" })).status,
+    ).toBe(NormalizedStatus.REVERSED);
+
+    // Issue #90: Paystack transfer reference rule (/^[a-z0-9_-]{16,50}$/), channels/metadata, chargeMobileMoney, listBanks, createRefund
+    await expect(
+      client.initiateTransfer({
+        amount: "500",
+        currency: "NGN",
+        recipient: "RCP_abc123",
+        reference: "short-ref",
+      }),
+    ).rejects.toThrow("16 to 50 characters");
+    await expect(
+      client.initiateTransfer({
+        amount: "500",
+        currency: "NGN",
+        recipient: "RCP_abc123",
+        reference: "UPPERCASE_REF_123456",
+      }),
+    ).rejects.toThrow("16 to 50 characters");
+    await client.initializeTransaction({
+      email: "buyer@example.com",
+      amount: "100",
+      currency: "GHS",
+      channels: ["mobile_money"],
+      metadata: { orderId: "ord-90" },
+    });
+    expect(capturedInitPayload["channels"]).toEqual(["mobile_money"]);
+    expect(capturedInitPayload["metadata"]).toEqual({ orderId: "ord-90" });
+
+    const chargeRes = await client.chargeMobileMoney({
+      amount: "50.00",
+      currency: "GHS",
+      phone: "0551234567",
+      provider: "MTN",
+      metadata: { channel: "ussd" },
+    });
+    expect((chargeRes["data"] as Record<string, unknown>)["status"]).toBe(
+      "pay_offline",
     );
+    expect(capturedChargePayload).toMatchObject({
+      email: "buyer@example.com",
+      amount: 5000,
+      currency: "GHS",
+      mobile_money: { phone: "0551234567", provider: "mtn" },
+      metadata: { channel: "ussd" },
+    });
+
+    const banksRes = await client.listBanks({
+      country: "cote d'ivoire",
+      currency: "XOF",
+      type: "mobile_money",
+      perPage: 50,
+    });
+    expect((banksRes["data"] as unknown[]).length).toBe(1);
+
+    const refundRes = await client.createRefund({
+      transaction: "ps-ref-1",
+      amount: "25.50",
+      currency: "NGN",
+      customerNote: "Partial refund",
+      merchantNote: "Item out of stock",
+    });
+    expect((refundRes["data"] as Record<string, unknown>)["amount"]).toBe(2550);
+    expect(capturedRefundPayload).toMatchObject({
+      transaction: "ps-ref-1",
+      amount: 2550,
+      currency: "NGN",
+      customer_note: "Partial refund",
+      merchant_note: "Item out of stock",
+    });
+
     const bal = await ps.getBalance();
     expect(bal.availableBalance).toBe("2500.50");
     expect(bal.currency).toBe("NGN");
@@ -1039,9 +1142,9 @@ describe("Pan-African Providers Integration", () => {
         amount: "500",
         currency: "NGN",
         recipient: "RCP_abc123",
-        reference: "ps-no-retry-tr",
+        reference: "ps-no-retry-tr-01",
       }),
-    ).rejects.toMatchObject({ referenceId: "ps-no-retry-tr", statusCode: 503 });
+    ).rejects.toMatchObject({ referenceId: "ps-no-retry-tr-01", statusCode: 503 });
     await expect(
       psNoRetry.initializeTransaction({
         email: "a@b.com",

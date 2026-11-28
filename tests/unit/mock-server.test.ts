@@ -337,6 +337,48 @@ describe("Local Mock Gateway Server", () => {
       ],
     ).toBe("success");
     expect(((await ps.getBalance())["data"] as unknown[]).length).toBe(1);
+    const psCharge = await ps.chargeMobileMoney({
+      email: "a@b.com",
+      amount: "25",
+      currency: "GHS",
+      phone: "0551234567",
+      provider: "mtn",
+      reference: "ps-charge-mock-1",
+    });
+    expect(
+      (
+        (await ps.verifyTransaction("ps-charge-mock-1"))["data"] as Record<
+          string,
+          unknown
+        >
+      )["status"],
+    ).toBe("success");
+    expect(psCharge["status"]).toBe(true);
+    expect(
+      (
+        (await ps.listBanks({ currency: "GHS", type: "mobile_money" }))[
+          "data"
+        ] as unknown[]
+      ).length,
+    ).toBe(1);
+    expect(
+      (
+        await ps.createRefund({
+          transaction: "ps-mock-1",
+          amount: "10",
+          currency: "NGN",
+        })
+      )["status"],
+    ).toBe(true);
+    expect(
+      (
+        await fetch(`${mock.url}/transfer`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reference: "BAD_SHORT" }),
+        })
+      ).status,
+    ).toBe(400);
 
     // 6. Flutterwave
     const flw = new FlutterwaveClient({

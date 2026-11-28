@@ -7,6 +7,7 @@ import type { TelemetryHook } from "../telemetry.js";
 import {
   encodePathSegment,
   generateReferenceId,
+  normaliseMsisdn,
   validateAmount,
   validateBaseUrl,
   validateCallbackUrl,
@@ -14,6 +15,7 @@ import {
   validateEmailAddress,
   validateHeaderValue,
   validateMaxRetries,
+  validatePrintableText,
   validateRetryBackoff,
   validateTimeout,
 } from "../utils.js";
@@ -44,6 +46,9 @@ const PAYSTACK_CAPABILITIES = new ProviderCapabilities({
 
 const PAYSTACK_ZERO_DECIMAL_CURRENCIES = new Set(["XOF", "XAF"]);
 const VALID_PAYSTACK_ENVIRONMENTS = new Set(["sandbox", "production"]);
+const PAYSTACK_TRANSFER_REFERENCE_RE = /^[a-z0-9_-]{16,50}$/;
+const PAYSTACK_UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 export interface PaystackConfigOptions {
   secretKey: string;
@@ -285,6 +290,22 @@ function validatePaystackReference(reference?: string | null): string {
   return cleaned;
 }
 
+function validatePaystackTransferReference(reference?: string | null): string {
+  if (reference === undefined || reference === null) {
+    return generateReferenceId();
+  }
+  if (typeof reference !== "string" || !reference.trim()) {
+    throw new RangeError("reference must be a non-empty string");
+  }
+  const cleaned = reference.trim();
+  if (!PAYSTACK_TRANSFER_REFERENCE_RE.test(cleaned)) {
+    throw new RangeError(
+      "Paystack transfer reference must be 16 to 50 characters containing only lowercase alphanumeric, '_', or '-'",
+    );
+  }
+  return cleaned;
+}
+
 function resolvePaystackRecipient(request: DisbursementRequest): string {
   const candidate = (request.payeeBankCode ?? request.payeeMsisdn).trim();
   if (!candidate.startsWith("RCP_")) {
@@ -312,6 +333,35 @@ export interface PaystackInitializeParams {
   currency: string;
   reference?: string | null;
   callbackUrl?: string | null;
+  channels?: readonly string[] | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface PaystackMobileMoneyChargeParams {
+  email?: string | null;
+  amount: string;
+  currency: string;
+  phone: string;
+  provider: string;
+  reference?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface PaystackListBanksParams {
+  country?: string | null;
+  currency?: string | null;
+  type?: string | null;
+  payWithBank?: boolean;
+  useCursor?: boolean;
+  perPage?: number;
+}
+
+export interface PaystackRefundParams {
+  transaction: string | number;
+  amount?: string | null;
+  currency?: string | null;
+  customerNote?: string | null;
+  merchantNote?: string | null;
 }
 
 export interface PaystackTransferRecipientParams {
@@ -386,6 +436,26 @@ export class PaystackClient {
     if (resolvedCb !== null) {
       payload["callback_url"] = resolvedCb;
     }
+    if (params.channels !== undefined && params.channels !== null) {
+      if (!Array.isArray(params.channels) || params.channels.length === 0) {
+        throw new RangeError("channels must be a non-empty array of channel names");
+      }
+      payload["channels"] = params.channels.map((ch) => {
+        if (typeof ch !== "string" || !ch.trim()) {
+          throw new RangeError("channel must be a non-empty string");
+        }
+        return validateHeaderValue(ch.trim(), {
+          fieldName: "channel",
+          allowWhitespace: false,
+        });
+      });
+    }
+    if (params.metadata !== undefined && params.metadata !== null) {
+      if (typeof params.metadata !== "object" || Array.isArray(params.metadata)) {
+        throw new RangeError("metadata must be a JSON object");
+      }
+      payload["metadata"] = params.metadata;
+    }
     const response = await this.http.request("POST", "/transaction/initialize", {
       headers: this.headers(),
       json: payload,
@@ -393,6 +463,153 @@ export class PaystackClient {
       referenceId: ref,
     });
     return parseJsonObject(response, ref);
+  }
+
+  /** Initiate a direct server-to-server Paystack mobile money charge (`POST /charge`). */
+  public async chargeMobileMoney(
+    params: PaystackMobileMoneyChargeParams,
+  ): Promise<Record<string, unknown>> {
+    const rawEmail = params.email ?? this.config.defaultCustomerEmail;
+    if (!rawEmail) {
+      throw new RangeError(
+        "email or PaystackConfig.defaultCustomerEmail is required for Paystack mobile money charges",
+      );
+    }
+    const email = validateEmailAddress(rawEmail);
+    const currency = validateCurrency(params.currency);
+    const minorAmount = toMinorUnits(params.amount, currency);
+    const digits = normaliseMsisdn(params.phone);
+    const phone = params.phone.trim().startsWith("+") ? `+${digits}` : digits;
+    if (typeof params.provider !== "string" || !params.provider.trim()) {
+      throw new RangeError("provider must be a non-empty mobile money provider code");
+    }
+    const provider = validateHeaderValue(params.provider.trim().toLowerCase(), {
+      fieldName: "provider",
+      allowWhitespace: false,
+    });
+    const ref = validatePaystackReference(params.reference);
+    const payload: Record<string, unknown> = {
+      email,
+      amount: minorAmount,
+      currency,
+      reference: ref,
+      mobile_money: {
+        phone,
+        provider,
+      },
+    };
+    if (params.metadata !== undefined && params.metadata !== null) {
+      if (typeof params.metadata !== "object" || Array.isArray(params.metadata)) {
+        throw new RangeError("metadata must be a JSON object");
+      }
+      payload["metadata"] = params.metadata;
+    }
+    const response = await this.http.request("POST", "/charge", {
+      headers: this.headers(),
+      json: payload,
+      idempotent: false,
+      referenceId: ref,
+    });
+    return parseJsonObject(response, ref);
+  }
+
+  /** List supported Paystack banks and mobile money providers (`GET /bank`). */
+  public async listBanks(
+    params: PaystackListBanksParams = {},
+  ): Promise<Record<string, unknown>> {
+    const query = new URLSearchParams();
+    if (params.country !== undefined && params.country !== null) {
+      query.set(
+        "country",
+        validatePrintableText(params.country, { fieldName: "country", maxLength: 64 }),
+      );
+    }
+    if (params.currency !== undefined && params.currency !== null) {
+      query.set("currency", validateCurrency(params.currency));
+    }
+    if (params.type !== undefined && params.type !== null) {
+      query.set(
+        "type",
+        validateHeaderValue(params.type.trim(), {
+          fieldName: "type",
+          allowWhitespace: false,
+        }),
+      );
+    }
+    if (params.payWithBank !== undefined) {
+      query.set("pay_with_bank", String(Boolean(params.payWithBank)));
+    }
+    if (params.useCursor !== undefined) {
+      query.set("use_cursor", String(Boolean(params.useCursor)));
+    }
+    if (params.perPage !== undefined) {
+      if (
+        typeof params.perPage !== "number" ||
+        !Number.isInteger(params.perPage) ||
+        params.perPage < 1 ||
+        params.perPage > 100
+      ) {
+        throw new RangeError("perPage must be an integer between 1 and 100");
+      }
+      query.set("perPage", String(params.perPage));
+    }
+    const qs = query.toString();
+    const path = qs ? `/bank?${qs}` : "/bank";
+    const response = await this.http.request("GET", path, {
+      headers: this.headers(),
+    });
+    return parseJsonObject(response);
+  }
+
+  /** Create a full or partial refund for a settled Paystack transaction (`POST /refund`). */
+  public async createRefund(
+    params: PaystackRefundParams,
+  ): Promise<Record<string, unknown>> {
+    let txIdentifier: string | number;
+    if (typeof params.transaction === "number") {
+      if (!Number.isSafeInteger(params.transaction) || params.transaction <= 0) {
+        throw new RangeError("transaction must be a positive integer ID or reference");
+      }
+      txIdentifier = params.transaction;
+    } else if (typeof params.transaction === "string" && params.transaction.trim()) {
+      txIdentifier = validateHeaderValue(params.transaction.trim(), {
+        fieldName: "transaction",
+        allowWhitespace: false,
+      });
+    } else {
+      throw new RangeError("transaction must be a non-empty reference or positive ID");
+    }
+    const payload: Record<string, unknown> = {
+      transaction: txIdentifier,
+    };
+    const normCurrency =
+      params.currency !== undefined && params.currency !== null
+        ? validateCurrency(params.currency)
+        : null;
+    if (normCurrency !== null) {
+      payload["currency"] = normCurrency;
+    }
+    if (params.amount !== undefined && params.amount !== null) {
+      payload["amount"] = toMinorUnits(params.amount, normCurrency);
+    }
+    if (params.customerNote !== undefined && params.customerNote !== null) {
+      payload["customer_note"] = validatePrintableText(params.customerNote, {
+        fieldName: "customerNote",
+      });
+    }
+    if (params.merchantNote !== undefined && params.merchantNote !== null) {
+      payload["merchant_note"] = validatePrintableText(params.merchantNote, {
+        fieldName: "merchantNote",
+      });
+    }
+    const refId = String(txIdentifier);
+    const response = await this.http.request("POST", "/refund", {
+      headers: this.headers(),
+      json: payload,
+      idempotent: false,
+      referenceId: refId,
+    });
+    return parseJsonObject(response, refId);
   }
 
   public async verifyTransaction(reference: string): Promise<Record<string, unknown>> {
@@ -465,7 +682,7 @@ export class PaystackClient {
     const recipient = validateHeaderValue(params.recipient.trim(), {
       fieldName: "recipient",
     });
-    const ref = validatePaystackReference(params.reference);
+    const ref = validatePaystackTransferReference(params.reference);
     const response = await this.http.request("POST", "/transfer", {
       headers: this.headers(),
       json: {
@@ -552,7 +769,11 @@ export class PaystackProvider implements PaymentProvider {
 
   public async disburse(request: DisbursementRequest): Promise<PaymentResult> {
     const recipient = resolvePaystackRecipient(request);
-    const ref = validatePaystackReference(request.referenceId);
+    const normalizedRef =
+      request.referenceId !== null && PAYSTACK_UUID_RE.test(request.referenceId)
+        ? request.referenceId.toLowerCase()
+        : request.referenceId;
+    const ref = validatePaystackTransferReference(normalizedRef);
     const res = await this.client.initiateTransfer({
       amount: request.amount,
       currency: request.currency,
